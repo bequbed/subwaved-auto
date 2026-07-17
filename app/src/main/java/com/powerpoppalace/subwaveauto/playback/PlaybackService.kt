@@ -1,6 +1,7 @@
 package com.powerpoppalace.subwaveauto.playback
 
 import android.content.Intent
+import android.net.Uri
 import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
@@ -14,6 +15,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.extractor.metadata.icy.IcyInfo
 import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaSession
+import com.powerpoppalace.subwaveauto.art.ArtDiagnostics
 import com.powerpoppalace.subwaveauto.art.ArtMode
 import com.powerpoppalace.subwaveauto.art.ArtworkStore
 import com.powerpoppalace.subwaveauto.net.StationApi
@@ -112,7 +114,9 @@ class PlaybackService : MediaLibraryService() {
             stationApi,
             serviceScope,
             ArtworkStore.get(this),
-        ) { ArtMode.fromPref(StationPrefs.artMode(this)) }
+            artMode = { ArtMode.fromPref(StationPrefs.artMode(this)) },
+            grantArtUri = ::grantArtReadAccess,
+        )
         liveMetadata.start()
         // ICY in-band metadata: ExoPlayer requests `Icy-MetaData: 1` on progressive
         // streams by default and surfaces IcyInfo at the PRESENTATION time of the
@@ -138,6 +142,39 @@ class PlaybackService : MediaLibraryService() {
 
     /** One session for ALL controllers — AA, Bluetooth, notification, phone UI. */
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession = session
+
+    /**
+     * v0.6 (Samsung/S24 artless-AA reports): explicitly grant read access on a
+     * cover's `content://` URI to every process that renders session artwork,
+     * right before the URI is published (LiveMetadata's push, main thread).
+     *
+     * The provider is exported and world-readable, which SHOULD suffice — and
+     * does on many builds — but some gearhead/OEM builds resolve metadata art
+     * URIs under a URI-grant check and, when the open is denied, render artless
+     * WITHOUT falling back to the inline bitmap sitting beside the URI in the
+     * same metadata. Granting to the session's CONNECTED controllers covers
+     * whatever actually talks to us (gearhead, OEM AA variants, systemui);
+     * the static set covers processes that load art without ever connecting
+     * as a controller. Idempotent, cheap (a handful of binder calls per track
+     * change), and every failure is swallowed — a grant can never break a push.
+     */
+    private fun grantArtReadAccess(uri: Uri) {
+        val packages = LinkedHashSet<String>()
+        session.connectedControllers.mapTo(packages) { it.packageName }
+        packages.addAll(KNOWN_ART_CONSUMERS)
+        val granted = ArrayList<String>(packages.size)
+        for (pkg in packages) {
+            if (pkg.isBlank() || pkg == packageName) continue
+            try {
+                grantUriPermission(pkg, uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                granted.add(pkg)
+            } catch (_: Exception) {
+                // Package not installed / grant refused — nothing to do; the
+                // exported provider remains the fallback route.
+            }
+        }
+        ArtDiagnostics.recordGrant(granted)
+    }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         super.onTaskRemoved(rootIntent)
@@ -277,5 +314,16 @@ class PlaybackService : MediaLibraryService() {
 
         /** Delay before the single automatic error retry (WP2 step 5). */
         const val RETRY_DELAY_MS = 3_000L
+
+        /**
+         * Art-rendering processes that may load a session artwork URI without
+         * appearing among the session's connected controllers (v0.6 grants).
+         * Grants to packages that aren't installed fail silently.
+         */
+        val KNOWN_ART_CONSUMERS = listOf(
+            "com.google.android.projection.gearhead", // Android Auto
+            "com.android.systemui", // notification / media output panel
+            "com.android.bluetooth", // AVRCP cover art
+        )
     }
 }

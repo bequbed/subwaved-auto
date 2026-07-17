@@ -35,12 +35,17 @@
              public art, metadata can't carry URI grants (it isn't an Intent),
              and gearhead/systemui package names vary too much to allowlist.
              The provider validates a strict v1/<sha256> path and refuses
-             every write. -->
+             every write.
+             v0.6: grantUriPermissions="true" + explicit runtime grants
+             (PlaybackService.grantArtReadAccess) — some gearhead/OEM builds
+             (Samsung reports) deny a plain exported read of a session-metadata
+             URI unless the serving app has granted it, then render artless
+             WITHOUT falling back to the inline bitmap. -->
         <provider
             android:name=".art.ArtworkProvider"
             android:authorities="${applicationId}.art"
             android:exported="true"
-            android:grantUriPermissions="false"
+            android:grantUriPermissions="true"
             tools:ignore="ExportedContentProvider" />
 
         <service

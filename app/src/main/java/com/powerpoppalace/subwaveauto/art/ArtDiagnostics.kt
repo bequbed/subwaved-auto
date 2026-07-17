@@ -21,6 +21,7 @@ internal object ArtDiagnostics {
     @Volatile var lastNormalize: String = "—"
     @Volatile var lastStore: String = "—"
     @Volatile var lastPush: String = "—"
+    @Volatile var lastGrant: String = "—"
     @Volatile var lastProviderOpen: String = "never"
 
     private fun now(): String = SimpleDateFormat("HH:mm:ss", Locale.US).format(Date())
@@ -53,6 +54,18 @@ internal object ArtDiagnostics {
         lastPush = "[${now()}] mode=${mode.prefValue} uri=${uri ?: "null"} data=${dataBytes?.let { "$it B" } ?: "null"}"
     }
 
+    /** v0.6: which packages got an explicit read grant on the pushed art URI. */
+    fun recordGrant(packages: List<String>) {
+        lastGrant = if (packages.isEmpty()) {
+            "[${now()}] none granted"
+        } else {
+            // Strip the common prefixes so the line fits a phone screen.
+            "[${now()}] " + packages.joinToString(" ") {
+                it.removePrefix("com.google.android.").removePrefix("com.android.")
+            }
+        }
+    }
+
     fun recordProviderOpen(caller: String?, path: String, ok: Boolean) {
         lastProviderOpen =
             "[${now()}] ${caller ?: "unknown"} → $path ${if (ok) "OK" else "NOT FOUND"}"
@@ -64,6 +77,7 @@ internal object ArtDiagnostics {
         appendLine("normalize: $lastNormalize")
         appendLine("store:     $lastStore")
         appendLine("push:      $lastPush")
+        appendLine("grant:     $lastGrant")
         append("provider:  $lastProviderOpen")
     }
 }

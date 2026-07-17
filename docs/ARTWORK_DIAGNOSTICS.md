@@ -23,6 +23,26 @@ v0.5 therefore:
 - publishes that content URI as `artworkUri`, keeping the inline
   `artworkData` bytes for the notification and Bluetooth.
 
+## v0.6 — explicit URI grants (Samsung / S24 reports)
+
+v0.5's `content://` URI relies on the provider being exported and
+world-readable. Field reports (S24 Ultra, v0.5.0) showed builds where the
+card still rendered artless: those gearhead/OEM builds resolve the metadata
+art URI under a URI-*grant* check and, when the open is denied, do **not**
+fall back to the inline bitmap. v0.6 therefore:
+
+- sets `android:grantUriPermissions="true"` on the provider, and
+- explicitly `grantUriPermission(...)`s each pushed cover URI (read-only) to
+  every connected session controller plus the known art consumers
+  (`com.google.android.projection.gearhead`, `com.android.systemui`,
+  `com.android.bluetooth`) *before* the URI is published.
+
+The panel gained a `grant:` line showing which packages were granted on the
+last push — `gearhead` should appear there whenever Android Auto is
+connected. `grant: … gearhead` **plus** `provider: never` after a track
+change means that build ignores the URI route entirely (flip to
+**Bytes only** mode and report).
+
 ## The hidden diagnostics panel
 
 Open the phone app and **tap the version line five times**. The panel shows:

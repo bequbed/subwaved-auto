@@ -258,6 +258,15 @@ internal class LiveMetadata(
      * diagnostics switch takes effect at the next track change without a restart.
      */
     private val artMode: () -> ArtMode = { ArtMode.CONTENT_PLUS_DATA },
+    /**
+     * v0.6: called with every `content://` artwork URI JUST BEFORE it is
+     * published onto the session, so the service can grant read access to the
+     * controller processes (gearhead & co.) that will resolve it. Some
+     * gearhead/OEM builds deny a plain exported-provider read of a metadata
+     * URI and then render artless without falling back to the inline bitmap —
+     * the explicit grant closes that route. No-op default for plain-JVM tests.
+     */
+    private val grantArtUri: (Uri) -> Unit = {},
 ) {
 
     /** Active poll loop, non-null only while playing. */
@@ -479,6 +488,10 @@ internal class LiveMetadata(
                 val artworkUri =
                     if (np.artUrl == null) null
                     else fields.uri?.let { runCatching { Uri.parse(it) }.getOrNull() }
+                // v0.6: grant controller processes read access BEFORE the URI is
+                // visible in session metadata, so gearhead's first load attempt
+                // can never race the grant.
+                if (artworkUri != null && artworkUri.scheme == "content") grantArtUri(artworkUri)
                 val artworkData = if (fields.includeData) art else null
                 meta.setAlbumTitle(np.album)
                     .setArtworkData(artworkData, if (artworkData != null) MediaMetadata.PICTURE_TYPE_FRONT_COVER else null)
