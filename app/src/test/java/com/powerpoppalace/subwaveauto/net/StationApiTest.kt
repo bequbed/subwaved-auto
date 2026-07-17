@@ -147,6 +147,76 @@ class StationApiTest {
     }
 
     @Test
+    fun nowPlaying_noArtField_subsonicIdDerivesCoverUrl() = runBlocking {
+        // v0.6.1 regression (S24U field report, radio.plexservernz.org): CURRENT
+        // SUB/WAVE payloads carry NO art/cover field at all — clients derive
+        // `{base}/api/cover/<subsonic_id>` themselves (upstream
+        // app/src/hooks/useNowPlayingInfo.ts). Without this fallback a stock
+        // station never shows artwork anywhere.
+        server.enqueue(
+            MockResponse().setBody(
+                """
+                {
+                  "nowPlaying": {"title": "Mr. Roboto", "artist": "Styx",
+                                 "album": "Kilroy Was Here", "subsonic_id": "aBc123XyZ"},
+                  "streamOnline": true,
+                  "dj": {"station": "Basement Transmission"}
+                }
+                """.trimIndent()
+            )
+        )
+
+        val np = api.nowPlaying()
+        requireNotNull(np)
+        assertEquals("Mr. Roboto", np.title)
+        assertEquals("$base/api/cover/aBc123XyZ", np.artUrl)
+        assertEquals("Basement Transmission", np.stationName)
+    }
+
+    @Test
+    fun nowPlaying_explicitArtWinsOverSubsonicId() = runBlocking {
+        // An explicit art/cover field (older stations) must keep winning over the
+        // derived cover URL.
+        server.enqueue(
+            MockResponse().setBody(
+                """
+                {
+                  "nowPlaying": {"title": "T", "subsonic_id": "id9"},
+                  "cover": "/cover/explicit"
+                }
+                """.trimIndent()
+            )
+        )
+
+        val np = api.nowPlaying()
+        assertEquals("$base/api/cover/explicit", np?.artUrl)
+    }
+
+    @Test
+    fun nowPlaying_nestedCoverField_usedAsArtUrl() = runBlocking {
+        // Art fields nested inside `nowPlaying` are honored too.
+        server.enqueue(
+            MockResponse().setBody(
+                """{"nowPlaying": {"title": "T", "cover": "https://cdn.example.com/n.jpg"}}"""
+            )
+        )
+
+        val np = api.nowPlaying()
+        assertEquals("https://cdn.example.com/n.jpg", np?.artUrl)
+    }
+
+    @Test
+    fun coverUrlForId_encodesAndBuilds() {
+        assertEquals(
+            "https://radio.example.com/api/cover/a%20b",
+            StationApi.coverUrlForId("a b", "https://radio.example.com"),
+        )
+        assertEquals(null, StationApi.coverUrlForId(null, "https://radio.example.com"))
+        assertEquals(null, StationApi.coverUrlForId("", "https://radio.example.com"))
+        assertEquals(null, StationApi.coverUrlForId("x", "not a url"))
+    }
+
+    @Test
     fun nowPlaying_nestedTrackWinsOverTopLevel() = runBlocking {
         server.enqueue(
             MockResponse().setBody(

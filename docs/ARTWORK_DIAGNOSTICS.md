@@ -23,6 +23,19 @@ v0.5 therefore:
 - publishes that content URI as `artworkUri`, keeping the inline
   `artworkData` bytes for the notification and Bluetooth.
 
+## v0.6.1 — stock SUB/WAVE payloads carry no art field
+
+Field report (S24 Ultra, panel all `—`, `provider: never`): the artwork
+pipeline never STARTED, because current SUB/WAVE `/api/now-playing` payloads
+contain **no art/cover URL at all** — clients are expected to derive
+`{base}/api/cover/<nowPlaying.subsonic_id>` themselves (see upstream
+`app/src/hooks/useNowPlayingInfo.ts`). The parser now does exactly that when
+no explicit art field is present; explicit `art`/`cover` fields (top-level or
+nested) still win, so older stations keep working. A panel showing every line
+as `—` while title/artist update means the station payload offered neither an
+art field nor a `subsonic_id` (e.g. a DJ/ident segment) — no cover exists to
+show.
+
 ## v0.6 — explicit URI grants (Samsung / S24 reports)
 
 v0.5's `content://` URI relies on the provider being exported and

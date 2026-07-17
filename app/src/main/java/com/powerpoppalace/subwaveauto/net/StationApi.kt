@@ -155,12 +155,20 @@ class StationApi(
             return try {
                 val o = JSONObject(body)
                 val track = o.optJSONObject("nowPlaying")
+                // Explicit art field first (top-level or nested — older stations),
+                // then the CURRENT SUB/WAVE contract (v0.6.1): the payload carries
+                // NO art URL at all; clients derive `{base}/api/cover/<subsonic_id>`
+                // themselves (upstream app/src/hooks/useNowPlayingInfo.ts). Without
+                // this fallback a stock station never shows art ANYWHERE — the
+                // 2026-07 S24U field report's actual root cause.
                 val rawArt = str(o, "art") ?: str(o, "cover")
+                    ?: track?.let { str(it, "art") ?: str(it, "cover") }
+                val subsonicId = track?.let { str(it, "subsonic_id") } ?: str(o, "subsonic_id")
                 NowPlaying(
                     title = track?.let { str(it, "title") } ?: str(o, "title"),
                     artist = track?.let { str(it, "artist") } ?: str(o, "artist"),
                     album = track?.let { str(it, "album") } ?: str(o, "album"),
-                    artUrl = resolveArtUrl(rawArt, baseUrl),
+                    artUrl = resolveArtUrl(rawArt, baseUrl) ?: coverUrlForId(subsonicId, baseUrl),
                     streamOnline = streamOnline(o),
                     // Station display name, e.g. dj.station = "Power Pop Palace".
                     stationName = o.optJSONObject("dj")?.let { str(it, "station") },
@@ -198,6 +206,23 @@ class StationApi(
             if (raw.toHttpUrlOrNull() != null) return raw
             val path = if (raw.startsWith("/")) raw else "/$raw"
             return "$baseUrl/api$path".toHttpUrlOrNull()?.toString()
+        }
+
+        /**
+         * Cover URL for a `subsonic_id` when the payload carries no art field —
+         * the current SUB/WAVE contract: `{base}/api/cover/<id>` (the controller's
+         * Subsonic cover proxy, publicly under the `/api` prefix like the rest of
+         * the controller surface). HttpUrl's builder percent-encodes the id.
+         */
+        internal fun coverUrlForId(id: String?, baseUrl: String): String? {
+            if (id.isNullOrBlank()) return null
+            val base = baseUrl.toHttpUrlOrNull() ?: return null
+            return base.newBuilder()
+                .addPathSegment("api")
+                .addPathSegment("cover")
+                .addPathSegment(id)
+                .build()
+                .toString()
         }
     }
 }
