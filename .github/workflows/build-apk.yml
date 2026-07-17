@@ -1,7 +1,8 @@
 # Builds the release APK on GitHub's runners (which have the Android SDK
-# preinstalled) and commits it to dist/ on the same branch, so a sideload
-# APK can be produced without a local Android toolchain. Runs the JVM unit
-# test suite first — a red test suite never ships an APK.
+# preinstalled). On a branch push it's committed to dist/ so a sideload APK
+# can be produced without a local Android toolchain; on a `v*` tag push it's
+# additionally published as a GitHub Release asset for easy download. Runs
+# the JVM unit test suite first — a red test suite never ships an APK.
 name: Build APK
 
 on:
@@ -9,6 +10,8 @@ on:
     branches:
       - main
       - "claude/**"
+    tags:
+      - "v*"
   workflow_dispatch:
 
 permissions:
@@ -42,8 +45,10 @@ jobs:
           path: app/build/outputs/apk/release/app-release.apk
 
       # Commit the APK into dist/ so it can be fetched with a plain git pull.
-      # [skip ci] keeps this push from re-triggering the workflow.
+      # [skip ci] keeps this push from re-triggering the workflow. Branch
+      # pushes only — a tag ref has nothing to push a commit onto.
       - name: Commit APK to dist/
+        if: github.ref_type == 'branch'
         run: |
           VERSION=$(sed -n 's/.*versionName = "\([^"]*\)".*/\1/p' app/build.gradle.kts)
           mkdir -p dist
@@ -54,3 +59,25 @@ jobs:
           git diff --cached --quiet && echo "APK unchanged, nothing to commit" && exit 0
           git commit -m "ci: built APK ${VERSION} (${GITHUB_SHA::7}) [skip ci]"
           git push
+
+      # Tag push (v0.6.0, v0.6.1, ...) → publish as a GitHub Release asset,
+      # the easy-download surface (vs. dist/, which needs a git pull).
+      # Idempotent: re-running a tag's workflow updates the existing release's
+      # asset instead of failing on "already exists".
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION=$(sed -n 's/.*versionName = "\([^"]*\)".*/\1/p' app/build.gradle.kts)
+          ASSET="dist-release/subwave-auto-${VERSION}.apk"
+          mkdir -p dist-release
+          cp app/build/outputs/apk/release/app-release.apk "$ASSET"
+          if gh release view "${{ github.ref_name }}" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            gh release upload "${{ github.ref_name }}" "$ASSET" --repo "${{ github.repository }}" --clobber
+          else
+            gh release create "${{ github.ref_name }}" "$ASSET" \
+              --repo "${{ github.repository }}" \
+              --title "SUB/WAVE Auto ${VERSION}" \
+              --notes "Sideload APK for SUB/WAVE Auto ${VERSION}. Install steps: docs/SIDELOAD_RUNBOOK.md."
+          fi
