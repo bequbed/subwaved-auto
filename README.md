@@ -22,6 +22,26 @@ adoption — it would drop into the main repo as a subdirectory unchanged, and a
 Play Store release under the project's own account would give every SUB/WAVE
 operator Android Auto without the sideload steps.
 
+## Download a prebuilt APK
+
+No local Android toolchain needed — every push to this branch is built and
+signed by CI. Grab the latest straight off the branch:
+
+- [subwave-auto-0.6.1.apk](https://github.com/bequbed/subwaved-auto/raw/claude/android-auto-album-art-9s0h4u/dist/subwave-auto-0.6.1.apk) — derives the cover-art URL from `subsonic_id` when the station payload has no explicit art field
+- [subwave-auto-0.6.0.apk](https://github.com/bequbed/subwaved-auto/raw/claude/android-auto-album-art-9s0h4u/dist/subwave-auto-0.6.0.apk) — grants Android Auto explicit read access to the cover-art content URI
+
+Each build replaces the previous one's signing key (CI uses a throwaway debug
+key per run), so installing a new version over an old one needs an uninstall
+first — see [docs/SIGNING.md](docs/SIGNING.md) if you want stable in-place
+updates instead. Install steps: [docs/SIDELOAD_RUNBOOK.md](docs/SIDELOAD_RUNBOOK.md).
+
+These aren't on the repo's **Releases** page — this session's GitHub access
+can push branch commits but not tags, and has no Releases-write scope. The
+`.github/workflows/build-apk.yml` workflow is ready for it though: pushing a
+`v0.6.0/v0.6.1`-style tag (`git tag v0.6.1 <commit> && git push origin
+v0.6.1`) from a machine with normal push access will build that commit and
+publish it as a Release with the APK attached automatically.
+
 ## Quickstart
 
 ```
