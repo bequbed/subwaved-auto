@@ -492,20 +492,22 @@ private fun RequestCard() {
                     scope.launch {
                         try {
                             val api = StationApi(StationPrefs.baseUrl(context))
-                            val first = api.postRequest(body, name)
-                            if (first == null) {
+                            // Elvis-bind so `current` is non-null by declaration —
+                            // the smart cast from a plain null-check doesn't carry
+                            // into the var's inferred type.
+                            var current: StationApi.RequestResult = api.postRequest(body, name) ?: run {
                                 status = offlineText
                                 return@launch
                             }
-                            status = first.message ?: sentText
+                            status = current.message ?: sentText
                             // Brief poll while the background resolver works, so
                             // the DJ's real ack ("Queued: …") replaces the generic
                             // "got it". Bounded — the on-air answer is the real UX.
-                            var current = first
                             var polls = 0
-                            while (current.pending && current.id != null && polls < 10) {
+                            while (current.pending && polls < 10) {
+                                val id = current.id ?: break
                                 delay(3_000)
-                                val next = api.pollRequest(current.id!!) ?: break
+                                val next = api.pollRequest(id) ?: break
                                 next.message?.let { status = it }
                                 current = next
                                 polls++
