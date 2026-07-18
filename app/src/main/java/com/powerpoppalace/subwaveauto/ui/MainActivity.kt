@@ -4,12 +4,14 @@ import android.Manifest
 import android.content.ComponentName
 import android.content.Context
 import android.content.pm.PackageManager
+import android.graphics.BitmapFactory
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -20,6 +22,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -42,6 +45,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
@@ -58,6 +64,7 @@ import com.google.common.util.concurrent.ListenableFuture
 import com.powerpoppalace.subwaveauto.R
 import com.powerpoppalace.subwaveauto.art.ArtDiagnostics
 import com.powerpoppalace.subwaveauto.art.ArtMode
+import com.powerpoppalace.subwaveauto.net.StationApi
 import com.powerpoppalace.subwaveauto.net.UpdateCheck
 import com.powerpoppalace.subwaveauto.net.UpdateInfo
 import com.powerpoppalace.subwaveauto.net.isNewerVersion
@@ -133,6 +140,12 @@ private class PlayerUiState {
     var title by mutableStateOf<String?>(null)
     var artist by mutableStateOf<String?>(null)
     var isPlaying by mutableStateOf(false)
+
+    /** v0.8: current cover decoded from the session's artworkData (≤320 px JPEG). */
+    var artwork by mutableStateOf<ImageBitmap?>(null)
+
+    /** Bytes behind [artwork] — identity check so repaints skip the re-decode. */
+    var artworkBytes: ByteArray? = null
 }
 
 /**
@@ -154,6 +167,16 @@ private fun rememberPlayerUiState(controller: MediaController?): PlayerUiState {
                 state.title = controller.mediaMetadata.title?.toString()?.takeIf { it.isNotBlank() }
                 state.artist = controller.mediaMetadata.artist?.toString()?.takeIf { it.isNotBlank() }
                 state.isPlaying = controller.isPlaying
+                // v0.8 cover on the phone screen: decode the session's inline
+                // bytes (the normalizer caps them at 320 px, so this is a cheap
+                // decode), skipping when the bytes haven't changed.
+                val bytes = controller.mediaMetadata.artworkData
+                if (!bytes.contentEquals(state.artworkBytes)) {
+                    state.artworkBytes = bytes
+                    state.artwork = bytes?.let {
+                        BitmapFactory.decodeByteArray(it, 0, it.size)?.asImageBitmap()
+                    }
+                }
             }
 
             val listener = object : Player.Listener {
@@ -197,7 +220,19 @@ private fun MainScreen(controller: MediaController?) {
                 style = MaterialTheme.typography.headlineMedium,
             )
 
-            Spacer(Modifier.height(40.dp))
+            Spacer(Modifier.height(24.dp))
+
+            // v0.8: cover art, straight from the session metadata the car renders.
+            player.artwork?.let { art ->
+                Image(
+                    bitmap = art,
+                    contentDescription = null,
+                    modifier = Modifier
+                        .size(220.dp)
+                        .clip(RoundedCornerShape(16.dp)),
+                )
+                Spacer(Modifier.height(16.dp))
+            }
 
             // Now playing
             Text(
@@ -213,7 +248,11 @@ private fun MainScreen(controller: MediaController?) {
                 textAlign = TextAlign.Center,
             )
 
-            Spacer(Modifier.height(40.dp))
+            // v0.8: DJ persona + listener count, polled from /api/now-playing
+            // while playing (the session metadata doesn't carry them).
+            StationInfoLine(isPlaying = player.isPlaying)
+
+            Spacer(Modifier.height(32.dp))
 
             // Big Play/Pause toggle. play() on a fresh (idle) controller is enough:
             // the service's ForwardingPlayer resolves a fresh cache-busted live item
@@ -240,7 +279,13 @@ private fun MainScreen(controller: MediaController?) {
                 )
             }
 
-            Spacer(Modifier.height(48.dp))
+            Spacer(Modifier.height(32.dp))
+
+            // v0.8: song requests — the box the Discord folks asked for. In the
+            // car, "Hey Google, play <anything> on SUB/WAVE Auto" does the same.
+            RequestCard()
+
+            Spacer(Modifier.height(40.dp))
 
             // Station base URL
             OutlinedTextField(
@@ -261,6 +306,13 @@ private fun MainScreen(controller: MediaController?) {
                 modifier = Modifier.fillMaxWidth(),
             )
             Spacer(Modifier.height(8.dp))
+            // v0.8: post-save connection test — a typo'd address used to fail
+            // SILENTLY (URL shape was all we checked). Now a successful save
+            // pings /api/now-playing and reports the station it found (or a
+            // clear failure) right under the field.
+            var connStatus by remember { mutableStateOf<Pair<Boolean, String>?>(null) }
+            val connFailText = stringResource(R.string.conn_fail)
+            val connTestingText = stringResource(R.string.conn_testing)
             Row(modifier = Modifier.fillMaxWidth()) {
                 Spacer(Modifier.weight(1f))
                 Button(onClick = {
@@ -275,22 +327,43 @@ private fun MainScreen(controller: MediaController?) {
                         urlError = false
                         urlInput = stored
                         scope.launch { snackbarHostState.showSnackbar(savedMessage) }
+                        connStatus = Pair(true, connTestingText)
+                        scope.launch {
+                            val np = StationApi(stored).nowPlaying()
+                            connStatus = if (np == null) {
+                                Pair(false, connFailText)
+                            } else {
+                                val station = np.stationName ?: "station"
+                                val track = listOfNotNull(np.artist, np.title).joinToString(" — ")
+                                Pair(true, "✓ $station" + if (track.isNotEmpty()) " · $track" else "")
+                            }
+                        }
                     } else {
                         urlError = true
+                        connStatus = null
                     }
                 }) {
                     Text(stringResource(R.string.save))
                 }
             }
+            connStatus?.let { (ok, text) ->
+                Text(
+                    text = text,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (ok) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
 
             Spacer(Modifier.height(48.dp))
 
-            // Android Auto sideload hint
+            // Android Auto sideload checklist (v0.8: numbered steps, left-aligned)
             Text(
                 text = stringResource(R.string.aa_unknown_sources_hint),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
+                textAlign = TextAlign.Start,
+                modifier = Modifier.fillMaxWidth(),
             )
 
             // App version — the first question in any field report ("which version
@@ -323,6 +396,137 @@ private fun MainScreen(controller: MediaController?) {
                 Spacer(Modifier.height(16.dp))
                 ArtDiagnosticsPanel()
             }
+        }
+    }
+}
+
+/**
+ * v0.8: "DJ Frequency · 3 listening" under the artist line. The session
+ * metadata can't carry these, so this polls `/api/now-playing` every 15 s
+ * while playing (same endpoint the service polls anyway — the station already
+ * serves it per-listener every 5 s, so this adds nothing meaningful). Hidden
+ * entirely while paused or when the payload lacks both fields.
+ */
+@Composable
+private fun StationInfoLine(isPlaying: Boolean) {
+    val context = LocalContext.current
+    var line by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(isPlaying) {
+        if (!isPlaying) {
+            line = null
+            return@LaunchedEffect
+        }
+        while (true) {
+            val np = StationApi(StationPrefs.baseUrl(context)).nowPlaying()
+            line = np?.let {
+                listOfNotNull(
+                    it.djName?.let { d -> "DJ $d" },
+                    it.listeners?.let { n -> if (n == 1) "1 listening" else "$n listening" },
+                ).joinToString(" · ").takeIf { s -> s.isNotEmpty() }
+            }
+            delay(15_000)
+        }
+    }
+    line?.let {
+        Spacer(Modifier.height(6.dp))
+        Text(
+            text = it,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+        )
+    }
+}
+
+/**
+ * v0.8: song-request box (the Discord ask). Plain HTTP to `POST /api/request` —
+ * works whether or not playback is running. Shows the server's human reply
+ * (the DJ's ack once resolved; rate-limit / requests-closed messages read
+ * as-is), polling the request id briefly while the background resolver works.
+ * The name persists (StationPrefs) and doubles as the name attached to
+ * in-car voice requests.
+ */
+@Composable
+private fun RequestCard() {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var name by rememberSaveable { mutableStateOf(StationPrefs.listenerName(context)) }
+    var text by rememberSaveable { mutableStateOf("") }
+    var sending by remember { mutableStateOf(false) }
+    var status by rememberSaveable { mutableStateOf<String?>(null) }
+    val offlineText = stringResource(R.string.request_offline)
+    val sentText = stringResource(R.string.request_sent)
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text(
+            text = stringResource(R.string.request_section_title),
+            style = MaterialTheme.typography.titleSmall,
+        )
+        Spacer(Modifier.height(8.dp))
+        OutlinedTextField(
+            value = text,
+            onValueChange = { text = it.take(StationApi.MAX_REQUEST_TEXT) },
+            label = { Text(stringResource(R.string.request_hint)) },
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(8.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            OutlinedTextField(
+                value = name,
+                onValueChange = { name = it.take(StationPrefs.LISTENER_NAME_MAX) },
+                label = { Text(stringResource(R.string.request_name_hint)) },
+                singleLine = true,
+                modifier = Modifier.weight(1f),
+            )
+            Spacer(Modifier.size(8.dp))
+            Button(
+                enabled = !sending && text.isNotBlank(),
+                onClick = {
+                    StationPrefs.setListenerName(context, name)
+                    val body = text.trim()
+                    sending = true
+                    status = null
+                    scope.launch {
+                        try {
+                            val api = StationApi(StationPrefs.baseUrl(context))
+                            val first = api.postRequest(body, name)
+                            if (first == null) {
+                                status = offlineText
+                                return@launch
+                            }
+                            status = first.message ?: sentText
+                            // Brief poll while the background resolver works, so
+                            // the DJ's real ack ("Queued: …") replaces the generic
+                            // "got it". Bounded — the on-air answer is the real UX.
+                            var current = first
+                            var polls = 0
+                            while (current.pending && current.id != null && polls < 10) {
+                                delay(3_000)
+                                val next = api.pollRequest(current.id!!) ?: break
+                                next.message?.let { status = it }
+                                current = next
+                                polls++
+                            }
+                            if (current.success) text = ""
+                        } finally {
+                            sending = false
+                        }
+                    }
+                },
+            ) {
+                Text(stringResource(if (sending) R.string.request_sending else R.string.request_send))
+            }
+        }
+        status?.let {
+            Spacer(Modifier.height(6.dp))
+            Text(
+                text = it,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }

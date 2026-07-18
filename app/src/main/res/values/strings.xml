@@ -11,7 +11,20 @@
     <string name="save">Save</string>
     <string name="station_url_error">https required — plain http only for LAN addresses</string>
     <string name="station_url_saved">Saved — playback restarts on the new station</string>
-    <string name="aa_unknown_sources_hint">To see SUB/WAVE in Android Auto: Android Auto app → tap version 10× → Developer settings → Unknown sources.</string>
+    <string name="aa_unknown_sources_hint">Car setup (one-time):\n1. Open the Android Auto app settings on this phone\n2. Scroll down and tap \'Version\' 10 times to unlock Developer settings\n3. Tap ⋮ → Developer settings → enable \'Unknown sources\'\n4. Force-stop Android Auto once, then plug into the car — SUB/WAVE appears in the launcher</string>
     <string name="app_version">Version %1$s</string>
     <string name="update_available">Update available: %1$s — tap to download</string>
+
+    <!-- v0.8: post-save connection test -->
+    <string name="conn_testing">Checking station…</string>
+    <string name="conn_fail">✗ Couldn\'t reach a SUB/WAVE station at this address</string>
+
+    <!-- v0.8: song requests -->
+    <string name="request_section_title">Request a song</string>
+    <string name="request_hint">Song, artist, or vibe…</string>
+    <string name="request_name_hint">Your name (optional)</string>
+    <string name="request_send">Send</string>
+    <string name="request_sending">Sending…</string>
+    <string name="request_sent">Request sent — listen for the DJ\'s reply</string>
+    <string name="request_offline">Couldn\'t reach the station — check your connection</string>
 </resources>

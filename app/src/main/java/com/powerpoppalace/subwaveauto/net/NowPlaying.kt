@@ -15,4 +15,8 @@ data class NowPlaying(
     val streamOnline: Boolean,
     /** Station display name (`dj.station` in the payload), e.g. "Power Pop Palace". */
     val stationName: String? = null,
+    /** DJ persona display name (`dj.name`), e.g. "Frequency". v0.8 phone UI. */
+    val djName: String? = null,
+    /** Current listener count (top-level `listeners`), or null when absent. */
+    val listeners: Int? = null,
 )

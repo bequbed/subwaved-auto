@@ -77,6 +77,72 @@ class BrowseTreeTest {
         assertFalse("consecutive resolves must never reuse an old ?t=", first == second)
     }
 
+    // --- v0.8 song requests from the car (voice search / AA search-result tap) ---
+
+    @Test
+    fun resolve_voiceSearchQuery_firesSongRequestAndStillPlaysLive() {
+        var fired: String? = null
+        tree.onSongRequest = { fired = it }
+        val voiceItem = MediaItem.Builder()
+            .setMediaId("some_assistant_id")
+            .setRequestMetadata(
+                MediaItem.RequestMetadata.Builder().setSearchQuery("play some rush").build(),
+            )
+            .build()
+
+        val before = System.currentTimeMillis()
+        val resolved = tree.resolveMediaItems(listOf(voiceItem))
+        val after = System.currentTimeMillis()
+
+        assertEquals("play some rush", fired)
+        // The request rides along — playback must STILL resolve to the live stream.
+        assertEquals(1, resolved.size)
+        assertIsFullyFormedLiveItem(resolved[0], before, after)
+    }
+
+    @Test
+    fun resolve_requestPrefixedMediaId_firesSongRequest() {
+        var fired: String? = null
+        tree.onSongRequest = { fired = it }
+        val searchTap = MediaItem.Builder().setMediaId(REQUEST_ITEM_PREFIX + "mr roboto").build()
+
+        val resolved = tree.resolveMediaItems(listOf(searchTap))
+
+        assertEquals("mr roboto", fired)
+        assertEquals(LIVE_ITEM_ID, resolved[0].mediaId)
+    }
+
+    @Test
+    fun resolve_plainLiveItem_firesNoRequest() {
+        var fired: String? = null
+        tree.onSongRequest = { fired = it }
+        tree.resolveMediaItems(listOf(MediaItem.Builder().setMediaId(LIVE_ITEM_ID).build()))
+        assertEquals(null, fired)
+    }
+
+    @Test
+    fun resolve_blankSearchQuery_firesNoRequest() {
+        // "Play SUB/WAVE Auto" (app name only) can arrive as a blank query —
+        // that's a plain play command, not a request.
+        var fired: String? = null
+        tree.onSongRequest = { fired = it }
+        val item = MediaItem.Builder()
+            .setMediaId("x")
+            .setRequestMetadata(MediaItem.RequestMetadata.Builder().setSearchQuery("  ").build())
+            .build()
+        tree.resolveMediaItems(listOf(item))
+        assertEquals(null, fired)
+    }
+
+    @Test
+    fun requestItemFor_playableCardCarryingTheQuery() {
+        val item = tree.requestItemFor("mr roboto")
+        assertEquals(REQUEST_ITEM_PREFIX + "mr roboto", item.mediaId)
+        assertEquals(true, item.mediaMetadata.isPlayable)
+        assertEquals(false, item.mediaMetadata.isBrowsable)
+        assertTrue(item.mediaMetadata.title.toString().contains("mr roboto"))
+    }
+
     // --- onAddMediaItems resolution (via its delegate resolveMediaItems) ---
 
     @Test

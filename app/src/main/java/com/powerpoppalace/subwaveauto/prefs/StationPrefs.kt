@@ -22,6 +22,12 @@ object StationPrefs {
      *  ArtMode.prefValue string; unknown values read back as production. */
     internal const val KEY_ART_MODE = "artMode"
 
+    /** v0.8 listener name attached to song requests ("name" in POST /api/request). */
+    internal const val KEY_LISTENER_NAME = "listenerName"
+
+    /** Server-side cap on the request name (upstream REQUEST_NAME_MAX). */
+    const val LISTENER_NAME_MAX = 40
+
     /**
      * Strong references to registered listeners. SharedPreferences holds its
      * listeners in a WeakHashMap, so without this list they would be GC'd and
@@ -57,6 +63,15 @@ object StationPrefs {
     /** Persist an artwork mode (the caller passes a known ArtMode.prefValue). */
     fun setArtMode(ctx: Context, value: String) {
         prefs(ctx).edit().putString(KEY_ART_MODE, value).apply()
+    }
+
+    /** Listener name for song requests, or "" when unset (server shows "anon"). */
+    fun listenerName(ctx: Context): String =
+        prefs(ctx).getString(KEY_LISTENER_NAME, null).orEmpty()
+
+    /** Persist the request name (trimmed + capped to the server's limit). */
+    fun setListenerName(ctx: Context, name: String) {
+        prefs(ctx).edit().putString(KEY_LISTENER_NAME, name.trim().take(LISTENER_NAME_MAX)).apply()
     }
 
     /**

@@ -17,6 +17,9 @@ import com.powerpoppalace.subwaveauto.net.StationApi
 const val ROOT_ID = "subwave_root"
 const val LIVE_ITEM_ID = "subwave_live"
 
+/** v0.8: mediaId prefix for the synthetic "send this search as a request" item. */
+internal const val REQUEST_ITEM_PREFIX = "subwave_request:"
+
 /**
  * The fully-formed live [MediaItem], per the §1 invariants: mediaId [LIVE_ITEM_ID],
  * a FRESH cache-busted stream URI on every call (never reuse an old `?t=`), explicit
@@ -60,6 +63,44 @@ internal fun liveMediaItem(api: StationApi): MediaItem =
  */
 class BrowseTree(var api: StationApi) : MediaLibrarySession.Callback {
 
+    /**
+     * v0.8 song requests from the car: invoked with the listener's free-text
+     * query when a voice search ("Hey Google, play X on SUB/WAVE Auto") or an
+     * AA search-result tap reaches the session. PlaybackService wires this to
+     * `POST /api/request` — the live stream keeps playing and the DJ answers
+     * ON AIR, so the driver never touches the screen. Assigned once at service
+     * startup (main thread, same as [api]).
+     */
+    var onSongRequest: ((String) -> Unit)? = null
+
+    /**
+     * Extract the request text a controller attached to a play command, or null:
+     * either a voice search riding [MediaItem.requestMetadata]'s searchQuery, or
+     * the [REQUEST_ITEM_PREFIX] mediaId minted by [onGetSearchResult]. Pure.
+     */
+    internal fun requestTextFor(item: MediaItem): String? {
+        item.requestMetadata.searchQuery?.trim()?.takeIf { it.isNotEmpty() }?.let { return it }
+        if (item.mediaId.startsWith(REQUEST_ITEM_PREFIX)) {
+            return item.mediaId.removePrefix(REQUEST_ITEM_PREFIX).trim().takeIf { it.isNotEmpty() }
+        }
+        return null
+    }
+
+    /** The single search "result": a playable card that submits the query as a request. */
+    internal fun requestItemFor(query: String): MediaItem =
+        MediaItem.Builder()
+            .setMediaId(REQUEST_ITEM_PREFIX + query)
+            .setMediaMetadata(
+                MediaMetadata.Builder()
+                    .setTitle("Request: \"$query\"")
+                    .setSubtitle("Send to the DJ — keeps playing live")
+                    .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
+                    .setIsPlayable(true)
+                    .setIsBrowsable(false)
+                    .build(),
+            )
+            .build()
+
     /** Browsable root — not playable, contains the single live item. */
     internal fun rootItem(): MediaItem =
         MediaItem.Builder()
@@ -91,9 +132,18 @@ class BrowseTree(var api: StationApi) : MediaLibrarySession.Callback {
      * tests exercise it without constructing a MediaSession/ControllerInfo):
      * controllers — AA always — send bare mediaIds with NO URI, so EVERY requested
      * item maps to the fully-formed live item with a fresh cache-busted stream URI.
+     *
+     * v0.8: before mapping, any attached request text (voice searchQuery or a
+     * search-result [REQUEST_ITEM_PREFIX] id) is forwarded to [onSongRequest] —
+     * the "play X on SUB/WAVE Auto" verbal request path. Playback of the live
+     * stream continues either way; the request rides along.
      */
-    internal fun resolveMediaItems(requested: List<MediaItem>): MutableList<MediaItem> =
-        requested.map { liveMediaItem(api) }.toMutableList()
+    internal fun resolveMediaItems(requested: List<MediaItem>): MutableList<MediaItem> {
+        requested.firstNotNullOfOrNull { requestTextFor(it) }?.let { text ->
+            onSongRequest?.invoke(text)
+        }
+        return requested.map { liveMediaItem(api) }.toMutableList()
+    }
 
     override fun onGetLibraryRoot(
         session: MediaLibrarySession,
@@ -138,4 +188,37 @@ class BrowseTree(var api: StationApi) : MediaLibrarySession.Callback {
         mediaItems: MutableList<MediaItem>,
     ): ListenableFuture<MutableList<MediaItem>> =
         Futures.immediateFuture(resolveMediaItems(mediaItems))
+
+    /**
+     * v0.8: AA's search box. The station is one live stream — there is nothing
+     * to search — so the single "result" is a card that sends the query to the
+     * DJ as a song request when tapped ([REQUEST_ITEM_PREFIX] → resolved by
+     * [resolveMediaItems], which fires the request and keeps the live stream).
+     */
+    override fun onSearch(
+        session: MediaLibrarySession,
+        browser: MediaSession.ControllerInfo,
+        query: String,
+        params: LibraryParams?,
+    ): ListenableFuture<LibraryResult<Void>> {
+        val count = if (query.isBlank()) 0 else 1
+        session.notifySearchResultChanged(browser, query, count, params)
+        return Futures.immediateFuture(LibraryResult.ofVoid(params))
+    }
+
+    override fun onGetSearchResult(
+        session: MediaLibrarySession,
+        browser: MediaSession.ControllerInfo,
+        query: String,
+        page: Int,
+        pageSize: Int,
+        params: LibraryParams?,
+    ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> {
+        val items = if (query.isBlank() || page > 0) {
+            ImmutableList.of<MediaItem>()
+        } else {
+            ImmutableList.of(requestItemFor(query.trim()))
+        }
+        return Futures.immediateFuture(LibraryResult.ofItemList(items, params))
+    }
 }

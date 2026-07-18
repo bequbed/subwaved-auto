@@ -39,6 +39,17 @@ Development builds (every push to a working branch) also land in
 [`dist/`](dist/) on that branch; those may be debug-signed — prefer the
 Releases page.
 
+## Song requests (v0.8)
+
+Requests go to the station's `POST /api/request` and the AI DJ answers **on
+air** — no screen time needed while driving:
+
+- **In the car (voice):** "Hey Google, play *Mr. Roboto* on SUB/WAVE Auto" —
+  the live stream keeps playing and the request is submitted. AA's search box
+  works too: type anything, tap the single "Request: …" result.
+- **On the phone:** the "Request a song" box shows the DJ's reply in-app.
+  The optional name you set there rides along with in-car voice requests.
+
 ## Quickstart
 
 ```

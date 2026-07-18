@@ -4,8 +4,10 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.util.concurrent.TimeUnit
@@ -124,9 +126,93 @@ class StationApi(
         if (cacheBust) "$baseUrl/stream.mp3?t=${System.currentTimeMillis()}"
         else "$baseUrl/stream.mp3"
 
+    /**
+     * Outcome of a song request (v0.8): the server acks immediately with an id
+     * and resolves in the background — poll [pollRequest] for the final word.
+     * [message] is the human line to show ("Queued: …", "Easy there — try
+     * again in 30s.", …); server 4xx/5xx bodies carry one too, so even a
+     * rejection reads like the DJ talking. Null return = network-level failure.
+     */
+    class RequestResult(
+        val success: Boolean,
+        val pending: Boolean,
+        val id: String?,
+        val message: String?,
+    )
+
+    /**
+     * POST `{base}/api/request` — submit a listener song request (v0.8, both the
+     * phone box and the Android Auto voice path). [text] is free natural
+     * language ("play some Rush", "rainy day vibes"); the server sanitizes,
+     * rate-limits per IP, and the DJ acknowledges ON AIR. Never throws; null on
+     * network failure (callers show a generic "couldn't reach the station").
+     */
+    suspend fun postRequest(text: String, name: String?): RequestResult? = withContext(Dispatchers.IO) {
+        try {
+            val payload = JSONObject()
+                .put("text", text.take(MAX_REQUEST_TEXT))
+                .put("name", name?.trim().orEmpty())
+                .toString()
+            val request = Request.Builder()
+                .url("$baseUrl/api/request")
+                .post(payload.toRequestBody("application/json".toMediaType()))
+                .build()
+            client.newCall(request).execute().use { resp ->
+                val body = resp.body?.string()
+                if (body.isNullOrBlank()) {
+                    return@withContext if (resp.isSuccessful) null
+                    else RequestResult(false, pending = false, id = null, message = null)
+                }
+                parseRequestResult(body)
+            }
+        } catch (ce: CancellationException) {
+            throw ce
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /** GET `{base}/api/request/{id}` — the request's current status. Null on any failure. */
+    suspend fun pollRequest(id: String): RequestResult? = withContext(Dispatchers.IO) {
+        try {
+            val request = Request.Builder().url("$baseUrl/api/request/$id").get().build()
+            client.newCall(request).execute().use { resp ->
+                if (!resp.isSuccessful) return@withContext null
+                val body = resp.body?.string()
+                if (body.isNullOrBlank()) return@withContext null
+                parseRequestResult(body)
+            }
+        } catch (ce: CancellationException) {
+            throw ce
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     companion object {
         /** Artwork download cap (~2 MB). */
         const val MAX_ART_BYTES: Long = 2L * 1024 * 1024
+
+        /** Request-text cap, mirroring the server's REQUEST_TEXT_MAX. */
+        const val MAX_REQUEST_TEXT = 280
+
+        /**
+         * Parse a request/poll response body (upstream RequestResult shape).
+         * The display line prefers `ack` (the DJ's on-air acknowledgment) over
+         * the drier `message`. Null only for non-JSON garbage. Pure, JVM-tested.
+         */
+        internal fun parseRequestResult(body: String): RequestResult? = try {
+            val o = JSONObject(body)
+            RequestResult(
+                success = o.optBoolean("success", false),
+                pending = o.optBoolean("pending", false) ||
+                    o.optString("status") == "pending",
+                id = str(o, "requestId") ?: str(o, "id"),
+                message = str(o, "ack") ?: str(o, "message"),
+            )
+        } catch (_: Exception) {
+            null
+        }
 
         /** One shared client so multiple StationApi instances don't multiply thread pools. */
         private val defaultClient: OkHttpClient by lazy {
@@ -172,6 +258,13 @@ class StationApi(
                     streamOnline = streamOnline(o),
                     // Station display name, e.g. dj.station = "Power Pop Palace".
                     stationName = o.optJSONObject("dj")?.let { str(it, "station") },
+                    // v0.8 phone-UI enrichment: DJ persona name + listener count.
+                    djName = o.optJSONObject("dj")?.let { str(it, "name") },
+                    listeners = if (o.has("listeners") && !o.isNull("listeners")) {
+                        o.optInt("listeners", -1).takeIf { it >= 0 }
+                    } else {
+                        null
+                    },
                 )
             } catch (_: Exception) {
                 null

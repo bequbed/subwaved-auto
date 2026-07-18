@@ -104,6 +104,15 @@ class PlaybackService : MediaLibraryService() {
         player.setMediaItem(freshLiveItem())
 
         browseTree = BrowseTree(stationApi)
+        // v0.8 song requests from the car: voice searches / AA search-result taps
+        // become POST /api/request against the CURRENT station (read at fire time —
+        // a base-URL change mid-session must not send requests to the old one).
+        // Fire-and-forget: the DJ acknowledges on air, so there is no UI to update.
+        browseTree.onSongRequest = { text ->
+            serviceScope.launch {
+                stationApi.postRequest(text, StationPrefs.listenerName(this@PlaybackService))
+            }
+        }
         session = MediaLibrarySession.Builder(this, player, browseTree).build()
 
         // v0.5: covers persist through ArtworkStore and publish as content://

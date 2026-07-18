@@ -287,6 +287,105 @@ class StationApiTest {
     // --- fetchArt ---
 
     @Test
+    fun nowPlaying_djNameAndListeners_parsed() = runBlocking {
+        // v0.8 phone-UI enrichment: dj.name + top-level listeners.
+        server.enqueue(
+            MockResponse().setBody(
+                """
+                {
+                  "nowPlaying": {"title": "T", "artist": "A"},
+                  "listeners": 4,
+                  "dj": {"name": "Frequency", "station": "Basement Transmission"}
+                }
+                """.trimIndent()
+            )
+        )
+
+        val np = api.nowPlaying()
+        assertEquals("Frequency", np?.djName)
+        assertEquals(4, np?.listeners)
+        assertEquals("Basement Transmission", np?.stationName)
+    }
+
+    // --- v0.8 song requests ---
+
+    @Test
+    fun postRequest_happyPath_sendsJsonAndParsesReply() = runBlocking {
+        server.enqueue(
+            MockResponse().setBody(
+                """{"success": true, "pending": true, "requestId": "abc-123", "message": "Got it"}"""
+            )
+        )
+
+        val r = api.postRequest("play some rush", "Jenil")
+        requireNotNull(r)
+        assertTrue(r.success)
+        assertTrue(r.pending)
+        assertEquals("abc-123", r.id)
+        assertEquals("Got it", r.message)
+
+        val recorded = server.takeRequest()
+        assertEquals("/api/request", recorded.path)
+        val sent = recorded.body.readUtf8()
+        assertTrue(sent.contains("\"text\":\"play some rush\""))
+        assertTrue(sent.contains("\"name\":\"Jenil\""))
+    }
+
+    @Test
+    fun postRequest_rateLimited_surfacesServerMessage() = runBlocking {
+        // 429/503 bodies carry a human line — it must reach the UI, not vanish
+        // into a generic error.
+        server.enqueue(
+            MockResponse().setResponseCode(429).setBody(
+                """{"success": false, "message": "Easy there — try again in 30s."}"""
+            )
+        )
+
+        val r = api.postRequest("x", null)
+        assertEquals(false, r?.success)
+        assertEquals("Easy there — try again in 30s.", r?.message)
+    }
+
+    @Test
+    fun postRequest_serverUnreachable_returnsNull() = runBlocking {
+        val dead = StationApi("http://127.0.0.1:${server.port}")
+        server.shutdown()
+        assertEquals(null, dead.postRequest("x", null))
+    }
+
+    @Test
+    fun pollRequest_resolvedAck_parsed() = runBlocking {
+        server.enqueue(
+            MockResponse().setBody(
+                """{"success": true, "status": "resolved", "ack": "Queued: Mr. Roboto"}"""
+            )
+        )
+
+        val r = api.pollRequest("abc-123")
+        assertEquals("Queued: Mr. Roboto", r?.message)
+        assertEquals(false, r?.pending)
+        assertEquals("/api/request/abc-123", server.takeRequest().path)
+    }
+
+    @Test
+    fun parseRequestResult_ackPreferredOverMessage() {
+        val r = StationApi.parseRequestResult("""{"success": true, "ack": "A", "message": "B"}""")
+        assertEquals("A", r?.message)
+    }
+
+    @Test
+    fun parseRequestResult_pendingStatusStringCounts() {
+        val r = StationApi.parseRequestResult("""{"success": true, "status": "pending", "id": "x"}""")
+        assertEquals(true, r?.pending)
+        assertEquals("x", r?.id)
+    }
+
+    @Test
+    fun parseRequestResult_garbage_returnsNull() {
+        assertEquals(null, StationApi.parseRequestResult("not json"))
+    }
+
+    @Test
     fun fetchArt_happyPath_returnsBytesAndMime() = runBlocking {
         val bytes = byteArrayOf(0x50, 0x4E, 0x47, 1, 2, 3, 4, 5)
         server.enqueue(
