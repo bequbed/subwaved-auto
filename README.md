@@ -52,7 +52,14 @@ air** — no screen time needed while driving:
   the live stream keeps playing and the request is submitted. AA's search box
   works too: type anything, tap the single "Request: …" result.
 - **On the phone:** the "Request a song" box shows the DJ's reply in-app.
-  The optional name you set there rides along with in-car voice requests.
+  The optional name you set there persists and rides along with in-car
+  voice requests (otherwise the station shows "anon").
+- **One-tap voice (v0.9):** the 🎤 button next to the request box opens
+  system speech input; the transcript auto-sends after a visible 5-second
+  countdown with a Cancel button.
+- **Steering-wheel voice button:** Android reserves it for the system
+  assistant — apps can't capture it directly. It still works indirectly:
+  press it and say "play *song* on SUB/WAVE Auto".
 
 ## Quickstart
 

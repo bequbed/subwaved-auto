@@ -2,6 +2,7 @@ package com.powerpoppalace.subwaveauto.ui
 
 import android.Manifest
 import android.app.SearchManager
+import android.content.ActivityNotFoundException
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -10,6 +11,7 @@ import android.graphics.BitmapFactory
 import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
+import android.speech.RecognizerIntent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -36,6 +38,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -506,8 +509,82 @@ private fun RequestCard() {
     var text by rememberSaveable { mutableStateOf("") }
     var sending by remember { mutableStateOf(false) }
     var status by rememberSaveable { mutableStateOf<String?>(null) }
+    // v0.9: seconds left on the auto-send countdown, or null when idle. Armed
+    // by a successful voice transcription; Cancel (or editing to empty) disarms.
+    var countdown by remember { mutableStateOf<Int?>(null) }
     val offlineText = stringResource(R.string.request_offline)
     val sentText = stringResource(R.string.request_sent)
+    val voiceUnavailableText = stringResource(R.string.voice_unavailable)
+
+    // One shared submit path for the Send button and the countdown expiry.
+    fun send() {
+        val body = text.trim()
+        if (body.isEmpty() || sending) return
+        countdown = null
+        StationPrefs.setListenerName(context, name)
+        sending = true
+        status = null
+        scope.launch {
+            try {
+                val api = StationApi(StationPrefs.baseUrl(context))
+                // Elvis-bind so `current` is non-null by declaration —
+                // the smart cast from a plain null-check doesn't carry
+                // into the var's inferred type.
+                var current: StationApi.RequestResult = api.postRequest(body, name) ?: run {
+                    status = offlineText
+                    return@launch
+                }
+                status = current.message ?: sentText
+                // Brief poll while the background resolver works, so
+                // the DJ's real ack ("Queued: …") replaces the generic
+                // "got it". Bounded — the on-air answer is the real UX.
+                var polls = 0
+                while (current.pending && polls < 10) {
+                    val id = current.id ?: break
+                    delay(3_000)
+                    val next = api.pollRequest(id) ?: break
+                    next.message?.let { status = it }
+                    current = next
+                    polls++
+                }
+                if (current.success) text = ""
+            } finally {
+                sending = false
+            }
+        }
+    }
+
+    // v0.9 countdown ticker: arms when countdown becomes non-null, ticks down
+    // once a second, fires send() at zero. Setting countdown = null (Cancel)
+    // stops it; a re-arm while active just continues from the new value.
+    LaunchedEffect(countdown != null) {
+        while (countdown != null) {
+            val c = countdown ?: break
+            if (c <= 0) {
+                countdown = null
+                send()
+                break
+            }
+            delay(1_000)
+            countdown = countdown?.minus(1)
+        }
+    }
+
+    // v0.9 one-tap voice request: system speech recognizer (no audio
+    // permission needed — the OS-provided dialog records) → transcript into
+    // the box → auto-send after the visible countdown.
+    val speechLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        val transcript = result.data
+            ?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
+            ?.firstOrNull()?.trim()
+        if (!transcript.isNullOrEmpty()) {
+            text = transcript.take(StationApi.MAX_REQUEST_TEXT)
+            status = null
+            countdown = VOICE_AUTO_SEND_SECONDS
+        }
+    }
 
     Column(modifier = Modifier.fillMaxWidth()) {
         Text(
@@ -515,12 +592,66 @@ private fun RequestCard() {
             style = MaterialTheme.typography.titleSmall,
         )
         Spacer(Modifier.height(8.dp))
-        OutlinedTextField(
-            value = text,
-            onValueChange = { text = it.take(StationApi.MAX_REQUEST_TEXT) },
-            label = { Text(stringResource(R.string.request_hint)) },
+        Row(
             modifier = Modifier.fillMaxWidth(),
-        )
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            OutlinedTextField(
+                value = text,
+                onValueChange = {
+                    text = it.take(StationApi.MAX_REQUEST_TEXT)
+                    // Typing over a pending voice transcript implies the user
+                    // wants control back — disarm the auto-send.
+                    countdown = null
+                },
+                label = { Text(stringResource(R.string.request_hint)) },
+                modifier = Modifier.weight(1f),
+            )
+            Spacer(Modifier.size(8.dp))
+            // 🎤 one-tap voice request (v0.9). OutlinedButton+emoji on purpose:
+            // no icon-pack dependency for one glyph in a spartan UI.
+            Button(
+                enabled = !sending,
+                onClick = {
+                    try {
+                        speechLauncher.launch(
+                            Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                                putExtra(
+                                    RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+                                    RecognizerIntent.LANGUAGE_MODEL_FREE_FORM,
+                                )
+                                putExtra(
+                                    RecognizerIntent.EXTRA_PROMPT,
+                                    context.getString(R.string.request_hint),
+                                )
+                            },
+                        )
+                    } catch (_: ActivityNotFoundException) {
+                        status = voiceUnavailableText
+                    }
+                },
+            ) {
+                Text(stringResource(R.string.request_mic))
+            }
+        }
+        // Countdown bar: visible arming state + the escape hatch the feedback
+        // asked for ("allowing time to cancel if needed").
+        countdown?.let { c ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = stringResource(R.string.request_sending_in, c),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(onClick = { countdown = null }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            }
+        }
         Spacer(Modifier.height(8.dp))
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -536,40 +667,7 @@ private fun RequestCard() {
             Spacer(Modifier.size(8.dp))
             Button(
                 enabled = !sending && text.isNotBlank(),
-                onClick = {
-                    StationPrefs.setListenerName(context, name)
-                    val body = text.trim()
-                    sending = true
-                    status = null
-                    scope.launch {
-                        try {
-                            val api = StationApi(StationPrefs.baseUrl(context))
-                            // Elvis-bind so `current` is non-null by declaration —
-                            // the smart cast from a plain null-check doesn't carry
-                            // into the var's inferred type.
-                            var current: StationApi.RequestResult = api.postRequest(body, name) ?: run {
-                                status = offlineText
-                                return@launch
-                            }
-                            status = current.message ?: sentText
-                            // Brief poll while the background resolver works, so
-                            // the DJ's real ack ("Queued: …") replaces the generic
-                            // "got it". Bounded — the on-air answer is the real UX.
-                            var polls = 0
-                            while (current.pending && polls < 10) {
-                                val id = current.id ?: break
-                                delay(3_000)
-                                val next = api.pollRequest(id) ?: break
-                                next.message?.let { status = it }
-                                current = next
-                                polls++
-                            }
-                            if (current.success) text = ""
-                        } finally {
-                            sending = false
-                        }
-                    }
-                },
+                onClick = { send() },
             ) {
                 Text(stringResource(if (sending) R.string.request_sending else R.string.request_send))
             }
@@ -584,6 +682,9 @@ private fun RequestCard() {
         }
     }
 }
+
+/** v0.9: seconds a voice transcript waits (visibly, cancellable) before auto-send. */
+private const val VOICE_AUTO_SEND_SECONDS = 5
 
 /**
  * "Update available" line under the version (v0.7, plan Tier-1 item 3) — the

@@ -27,4 +27,10 @@
     <string name="request_sending">Sending…</string>
     <string name="request_sent">Request sent — listen for the DJ\'s reply</string>
     <string name="request_offline">Couldn\'t reach the station — check your connection</string>
+
+    <!-- v0.9: one-tap voice request + countdown auto-send -->
+    <string name="request_mic">🎤</string>
+    <string name="request_sending_in">Sending in %1$d…</string>
+    <string name="cancel">Cancel</string>
+    <string name="voice_unavailable">Voice input isn\'t available on this device</string>
 </resources>
