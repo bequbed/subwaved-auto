@@ -25,8 +25,8 @@ operator Android Auto without the sideload steps.
 ## Download a prebuilt APK
 
 **[⬇ Releases page](https://github.com/bequbed/subwaved-auto/releases)** —
-each tagged version is built by CI and attached there as a ready-to-sideload
-APK. Install steps: [docs/SIDELOAD_RUNBOOK.md](docs/SIDELOAD_RUNBOOK.md).
+each version is built by CI and attached there as a ready-to-sideload APK.
+Install steps: [docs/SIDELOAD_RUNBOOK.md](docs/SIDELOAD_RUNBOOK.md).
 
 From v0.7.0, release builds are signed with a stable key (kept in CI
 secrets), so newer versions install straight over older ones — no
@@ -34,6 +34,10 @@ uninstall needed. Upgrading from a pre-0.7 build requires one final
 uninstall/reinstall to switch onto the stable key. The app checks the
 Releases page on launch and shows a tap-to-download line when a newer
 version exists.
+
+Releases are cut automatically: bump `versionName` in
+`app/build.gradle.kts`, push, and CI builds, signs, and publishes the
+matching `vX.Y.Z` Release with no further steps.
 
 Development builds (every push to a working branch) also land in
 [`dist/`](dist/) on that branch; those may be debug-signed — prefer the
