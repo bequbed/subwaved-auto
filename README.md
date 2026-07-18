@@ -24,23 +24,20 @@ operator Android Auto without the sideload steps.
 
 ## Download a prebuilt APK
 
-No local Android toolchain needed — every push to this branch is built and
-signed by CI. Grab the latest straight off the branch:
+**[⬇ Releases page](https://github.com/bequbed/subwaved-auto/releases)** —
+each tagged version is built by CI and attached there as a ready-to-sideload
+APK. Install steps: [docs/SIDELOAD_RUNBOOK.md](docs/SIDELOAD_RUNBOOK.md).
 
-- [subwave-auto-0.6.1.apk](https://github.com/bequbed/subwaved-auto/raw/claude/android-auto-album-art-9s0h4u/dist/subwave-auto-0.6.1.apk) — derives the cover-art URL from `subsonic_id` when the station payload has no explicit art field
-- [subwave-auto-0.6.0.apk](https://github.com/bequbed/subwaved-auto/raw/claude/android-auto-album-art-9s0h4u/dist/subwave-auto-0.6.0.apk) — grants Android Auto explicit read access to the cover-art content URI
+From v0.7.0, release builds are signed with a stable key (kept in CI
+secrets), so newer versions install straight over older ones — no
+uninstall needed. Upgrading from a pre-0.7 build requires one final
+uninstall/reinstall to switch onto the stable key. The app checks the
+Releases page on launch and shows a tap-to-download line when a newer
+version exists.
 
-Each build replaces the previous one's signing key (CI uses a throwaway debug
-key per run), so installing a new version over an old one needs an uninstall
-first — see [docs/SIGNING.md](docs/SIGNING.md) if you want stable in-place
-updates instead. Install steps: [docs/SIDELOAD_RUNBOOK.md](docs/SIDELOAD_RUNBOOK.md).
-
-These aren't on the repo's **Releases** page — this session's GitHub access
-can push branch commits but not tags, and has no Releases-write scope. The
-`.github/workflows/build-apk.yml` workflow is ready for it though: pushing a
-`v0.6.0/v0.6.1`-style tag (`git tag v0.6.1 <commit> && git push origin
-v0.6.1`) from a machine with normal push access will build that commit and
-publish it as a Release with the APK attached automatically.
+Development builds (every push to a working branch) also land in
+[`dist/`](dist/) on that branch; those may be debug-signed — prefer the
+Releases page.
 
 ## Quickstart
 

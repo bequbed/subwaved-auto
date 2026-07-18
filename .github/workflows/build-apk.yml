@@ -32,6 +32,30 @@ jobs:
           distribution: temurin
           java-version: "17"
 
+      # Stable release signing (v0.7): when the two repo secrets are set, the
+      # keystore is materialized and build.gradle.kts picks up
+      # keystore.properties automatically — every build then carries the SAME
+      # signature, so users update in place instead of uninstall/reinstall.
+      # Without the secrets this is a no-op and the build falls back to a
+      # throwaway debug key, exactly as before (forks stay green).
+      - name: Set up release signing
+        env:
+          KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ] || [ -z "$KEYSTORE_PASSWORD" ]; then
+            echo "No signing secrets — building with a throwaway debug key"
+            exit 0
+          fi
+          echo "$KEYSTORE_BASE64" | base64 -d > subwave-auto-fork.keystore
+          {
+            echo "storeFile=../subwave-auto-fork.keystore"
+            echo "storePassword=$KEYSTORE_PASSWORD"
+            echo "keyAlias=subwaveauto"
+            echo "keyPassword=$KEYSTORE_PASSWORD"
+          } > keystore.properties
+          echo "Release signing configured (stable key)"
+
       - name: Run unit tests
         run: ./gradlew --no-daemon test
 

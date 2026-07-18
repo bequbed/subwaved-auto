@@ -43,6 +43,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
@@ -57,6 +58,9 @@ import com.google.common.util.concurrent.ListenableFuture
 import com.powerpoppalace.subwaveauto.R
 import com.powerpoppalace.subwaveauto.art.ArtDiagnostics
 import com.powerpoppalace.subwaveauto.art.ArtMode
+import com.powerpoppalace.subwaveauto.net.UpdateCheck
+import com.powerpoppalace.subwaveauto.net.UpdateInfo
+import com.powerpoppalace.subwaveauto.net.isNewerVersion
 import com.powerpoppalace.subwaveauto.prefs.StationPrefs
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -313,11 +317,43 @@ private fun MainScreen(controller: MediaController?) {
                 )
             }
 
+            UpdateNotice()
+
             if (diagnosticsVisible) {
                 Spacer(Modifier.height(16.dp))
                 ArtDiagnosticsPanel()
             }
         }
+    }
+}
+
+/**
+ * "Update available" line under the version (v0.7, plan Tier-1 item 3) — the
+ * only update channel a sideloaded app has. Checks the repo's GitHub Releases
+ * once per screen entry; renders NOTHING unless a strictly newer release
+ * exists (offline / no releases / malformed tag all stay silent — best-effort
+ * only). Tapping opens the release page in the browser to download the APK.
+ */
+@Composable
+private fun UpdateNotice() {
+    val context = LocalContext.current
+    val uriHandler = LocalUriHandler.current
+    var update by remember { mutableStateOf<UpdateInfo?>(null) }
+    LaunchedEffect(Unit) {
+        val current = appVersionName(context) ?: return@LaunchedEffect
+        val latest = UpdateCheck.latestRelease() ?: return@LaunchedEffect
+        if (isNewerVersion(latest.tag, current)) update = latest
+    }
+    update?.let { u ->
+        Spacer(Modifier.height(8.dp))
+        Text(
+            text = stringResource(R.string.update_available, u.tag),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.clickable {
+                runCatching { uriHandler.openUri(u.url) }
+            },
+        )
     }
 }
 

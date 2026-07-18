@@ -1,5 +1,24 @@
 # SUB/WAVE Auto — release signing
 
+## CI signing via GitHub secrets (v0.7+, this fork)
+
+CI (`.github/workflows/build-apk.yml`) signs every build with a stable key
+materialized from two repository **Actions secrets**:
+
+| Secret | Content |
+|---|---|
+| `RELEASE_KEYSTORE_BASE64` | the keystore file, base64-encoded (`base64 -w0 subwave-auto-fork.keystore`) |
+| `RELEASE_KEYSTORE_PASSWORD` | the store/key password (one password serves both) |
+
+Key alias is `subwaveauto` (hardcoded in the workflow step). With the secrets
+set, every CI build — branch or tag — carries the same signature, so users
+update in place. Without them, CI falls back to a throwaway debug key (fork
+clones stay green, but each build needs uninstall/reinstall). Back up the
+keystore file + password in a password manager: GitHub secrets are write-only
+and can't be re-downloaded.
+
+## Local signing (original operator scheme)
+
 ## What exists
 
 | File | Location | In git? |

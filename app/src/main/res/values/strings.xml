@@ -13,4 +13,5 @@
     <string name="station_url_saved">Saved — playback restarts on the new station</string>
     <string name="aa_unknown_sources_hint">To see SUB/WAVE in Android Auto: Android Auto app → tap version 10× → Developer settings → Unknown sources.</string>
     <string name="app_version">Version %1$s</string>
+    <string name="update_available">Update available: %1$s — tap to download</string>
 </resources>
