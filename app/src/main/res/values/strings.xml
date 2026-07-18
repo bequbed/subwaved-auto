@@ -38,4 +38,8 @@
     <string name="request_sending_in">Sending in %1$d…</string>
     <string name="cancel">Cancel</string>
     <string name="voice_unavailable">Voice input isn\'t available on this device</string>
+
+    <!-- v0.10: launcher shortcut straight into the voice-request dialog -->
+    <string name="shortcut_request_short">Request</string>
+    <string name="shortcut_request_long">Request a song</string>
 </resources>
