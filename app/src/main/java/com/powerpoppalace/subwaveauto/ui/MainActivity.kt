@@ -108,10 +108,21 @@ class MainActivity : ComponentActivity() {
     /** One captured voice launch; [query] null when the assistant sent none. */
     class VoiceLaunch(val query: String?)
 
+    /**
+     * v0.10: launched via the "Request a song" launcher shortcut — MainScreen
+     * opens the speech dialog immediately, making a voice request ONE tap from
+     * the home screen (transcript then auto-sends after the countdown).
+     */
+    private val micLaunch = mutableStateOf(false)
+
     private fun captureVoiceLaunch(intent: Intent?) {
-        if (intent?.action != MediaStore.INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH) return
-        val query = intent.getStringExtra(SearchManager.QUERY)?.trim()?.takeIf { it.isNotEmpty() }
-        voiceLaunch.value = VoiceLaunch(query)
+        when (intent?.action) {
+            MediaStore.INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH -> {
+                val query = intent.getStringExtra(SearchManager.QUERY)?.trim()?.takeIf { it.isNotEmpty() }
+                voiceLaunch.value = VoiceLaunch(query)
+            }
+            ACTION_VOICE_REQUEST -> micLaunch.value = true
+        }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -146,6 +157,8 @@ class MainActivity : ComponentActivity() {
                         controller = controller.value,
                         voiceLaunch = voiceLaunch.value,
                         onVoiceLaunchConsumed = { voiceLaunch.value = null },
+                        micLaunch = micLaunch.value,
+                        onMicLaunchConsumed = { micLaunch.value = false },
                     )
                 }
             }
@@ -167,6 +180,9 @@ class MainActivity : ComponentActivity() {
          */
         const val PLAYBACK_SERVICE_CLASS =
             "com.powerpoppalace.subwaveauto.playback.PlaybackService"
+
+        /** v0.10: intent action fired by the "Request a song" launcher shortcut. */
+        const val ACTION_VOICE_REQUEST = "com.powerpoppalace.subwaveauto.VOICE_REQUEST"
     }
 }
 
@@ -232,6 +248,8 @@ private fun MainScreen(
     controller: MediaController?,
     voiceLaunch: MainActivity.VoiceLaunch? = null,
     onVoiceLaunchConsumed: () -> Unit = {},
+    micLaunch: Boolean = false,
+    onMicLaunchConsumed: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val player = rememberPlayerUiState(controller)
@@ -338,7 +356,7 @@ private fun MainScreen(
 
             // v0.8: song requests — the box the Discord folks asked for. In the
             // car, "Hey Google, play <anything> on SUB/WAVE Auto" does the same.
-            RequestCard()
+            RequestCard(autoMic = micLaunch, onAutoMicConsumed = onMicLaunchConsumed)
 
             Spacer(Modifier.height(40.dp))
 
@@ -502,7 +520,10 @@ private fun StationInfoLine(isPlaying: Boolean) {
  * in-car voice requests.
  */
 @Composable
-private fun RequestCard() {
+private fun RequestCard(
+    autoMic: Boolean = false,
+    onAutoMicConsumed: () -> Unit = {},
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var name by rememberSaveable { mutableStateOf(StationPrefs.listenerName(context)) }
@@ -586,6 +607,34 @@ private fun RequestCard() {
         }
     }
 
+    fun launchSpeech() {
+        try {
+            speechLauncher.launch(
+                Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                    putExtra(
+                        RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+                        RecognizerIntent.LANGUAGE_MODEL_FREE_FORM,
+                    )
+                    putExtra(
+                        RecognizerIntent.EXTRA_PROMPT,
+                        context.getString(R.string.request_hint),
+                    )
+                },
+            )
+        } catch (_: ActivityNotFoundException) {
+            status = voiceUnavailableText
+        }
+    }
+
+    // v0.10: launched via the "Request a song" home-screen shortcut — go
+    // straight into the speech dialog. One tap → speak → countdown → sent.
+    LaunchedEffect(autoMic) {
+        if (autoMic) {
+            onAutoMicConsumed()
+            launchSpeech()
+        }
+    }
+
     Column(modifier = Modifier.fillMaxWidth()) {
         Text(
             text = stringResource(R.string.request_section_title),
@@ -608,28 +657,11 @@ private fun RequestCard() {
                 modifier = Modifier.weight(1f),
             )
             Spacer(Modifier.size(8.dp))
-            // 🎤 one-tap voice request (v0.9). OutlinedButton+emoji on purpose:
+            // 🎤 one-tap voice request (v0.9). Button+emoji on purpose:
             // no icon-pack dependency for one glyph in a spartan UI.
             Button(
                 enabled = !sending,
-                onClick = {
-                    try {
-                        speechLauncher.launch(
-                            Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                                putExtra(
-                                    RecognizerIntent.EXTRA_LANGUAGE_MODEL,
-                                    RecognizerIntent.LANGUAGE_MODEL_FREE_FORM,
-                                )
-                                putExtra(
-                                    RecognizerIntent.EXTRA_PROMPT,
-                                    context.getString(R.string.request_hint),
-                                )
-                            },
-                        )
-                    } catch (_: ActivityNotFoundException) {
-                        status = voiceUnavailableText
-                    }
-                },
+                onClick = { launchSpeech() },
             ) {
                 Text(stringResource(R.string.request_mic))
             }

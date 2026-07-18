@@ -134,6 +134,31 @@ class BrowseTreeTest {
         assertEquals(null, fired)
     }
 
+    // --- v0.10 one-tap "More like this" (custom AA command) ---
+
+    @Test
+    fun handleCustomAction_moreLikeThis_firesCannedRequest() {
+        var fired: String? = null
+        tree.onSongRequest = { fired = it }
+        assertTrue(tree.handleCustomAction(ACTION_MORE_LIKE_THIS))
+        assertEquals(MORE_LIKE_THIS_TEXT, fired)
+    }
+
+    @Test
+    fun handleCustomAction_unknownAction_notHandled() {
+        var fired: String? = null
+        tree.onSongRequest = { fired = it }
+        assertFalse(tree.handleCustomAction("some.other.action"))
+        assertEquals(null, fired)
+    }
+
+    @Test
+    fun moreLikeThisButton_carriesTheSessionCommand() {
+        val button = tree.moreLikeThisButton()
+        assertEquals(ACTION_MORE_LIKE_THIS, button.sessionCommand?.customAction)
+        assertEquals("More like this", button.displayName.toString())
+    }
+
     @Test
     fun requestItemFor_playableCardCarryingTheQuery() {
         val item = tree.requestItemFor("mr roboto")

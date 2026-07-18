@@ -1,12 +1,18 @@
 package com.powerpoppalace.subwaveauto.playback
 
+import android.os.Bundle
+import androidx.annotation.OptIn
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.MimeTypes
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.session.CommandButton
 import androidx.media3.session.LibraryResult
 import androidx.media3.session.MediaLibraryService.LibraryParams
 import androidx.media3.session.MediaLibraryService.MediaLibrarySession
 import androidx.media3.session.MediaSession
+import androidx.media3.session.SessionCommand
+import androidx.media3.session.SessionResult
 import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
@@ -19,6 +25,13 @@ const val LIVE_ITEM_ID = "subwave_live"
 
 /** v0.8: mediaId prefix for the synthetic "send this search as a request" item. */
 internal const val REQUEST_ITEM_PREFIX = "subwave_request:"
+
+/** v0.10: custom session command behind the one-tap AA "More like this" button. */
+internal const val ACTION_MORE_LIKE_THIS = "com.powerpoppalace.subwaveauto.MORE_LIKE_THIS"
+
+/** The canned request the button submits — upstream SUB/WAVE has a dedicated
+ *  fast path for exactly this phrase (no LLM round-trip). */
+internal const val MORE_LIKE_THIS_TEXT = "more like this"
 
 /**
  * The fully-formed live [MediaItem], per the §1 invariants: mediaId [LIVE_ITEM_ID],
@@ -61,6 +74,7 @@ internal fun liveMediaItem(api: StationApi): MediaItem =
  * against the new station. Only ever mutated from the main thread (the prefs
  * listener), same thread the session callbacks arrive on.
  */
+@OptIn(UnstableApi::class)
 class BrowseTree(var api: StationApi) : MediaLibrarySession.Callback {
 
     /**
@@ -85,6 +99,54 @@ class BrowseTree(var api: StationApi) : MediaLibrarySession.Callback {
         }
         return null
     }
+
+    /**
+     * v0.10: the one-tap "More like this" button shown on the Android Auto
+     * now-playing screen (custom media command). One press submits
+     * [MORE_LIKE_THIS_TEXT] as a listener request against the current track —
+     * the only kind of one-tap request the AA platform allows (free-text needs
+     * voice/search, which the system assistant owns).
+     */
+    internal fun moreLikeThisButton(): CommandButton =
+        CommandButton.Builder(CommandButton.ICON_HEART_UNFILLED)
+            .setDisplayName("More like this")
+            .setSessionCommand(SessionCommand(ACTION_MORE_LIKE_THIS, Bundle.EMPTY))
+            .build()
+
+    /** Pure seam for [onCustomCommand]: true when [action] was ours and fired. */
+    internal fun handleCustomAction(action: String): Boolean {
+        if (action == ACTION_MORE_LIKE_THIS) {
+            onSongRequest?.invoke(MORE_LIKE_THIS_TEXT)
+            return true
+        }
+        return false
+    }
+
+    override fun onConnect(
+        session: MediaSession,
+        controller: MediaSession.ControllerInfo,
+    ): MediaSession.ConnectionResult {
+        val commands = MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS
+            .buildUpon()
+            .add(SessionCommand(ACTION_MORE_LIKE_THIS, Bundle.EMPTY))
+            .build()
+        return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
+            .setAvailableSessionCommands(commands)
+            .setCustomLayout(ImmutableList.of(moreLikeThisButton()))
+            .build()
+    }
+
+    override fun onCustomCommand(
+        session: MediaSession,
+        controller: MediaSession.ControllerInfo,
+        customCommand: SessionCommand,
+        args: Bundle,
+    ): ListenableFuture<SessionResult> =
+        if (handleCustomAction(customCommand.customAction)) {
+            Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+        } else {
+            super.onCustomCommand(session, controller, customCommand, args)
+        }
 
     /** The single search "result": a playable card that submits the query as a request. */
     internal fun requestItemFor(query: String): MediaItem =

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- v0.10: one-tap voice request. Long-press the launcher icon (or pin this
+     shortcut to the home screen) → the app opens straight into the speech
+     dialog and the transcript auto-sends after the visible countdown. -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="voice_request"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/shortcut_request_short"
+        android:shortcutLongLabel="@string/shortcut_request_long">
+        <intent
+            android:action="com.powerpoppalace.subwaveauto.VOICE_REQUEST"
+            android:targetPackage="com.powerpoppalace.subwaveauto"
+            android:targetClass="com.powerpoppalace.subwaveauto.ui.MainActivity" />
+    </shortcut>
+</shortcuts>

@@ -57,9 +57,16 @@ air** — no screen time needed while driving:
 - **One-tap voice (v0.9):** the 🎤 button next to the request box opens
   system speech input; the transcript auto-sends after a visible 5-second
   countdown with a Cancel button.
+- **Home-screen shortcut (v0.10):** long-press the launcher icon and pin
+  "Request a song" — tapping it opens straight into the speech dialog.
+  One tap → speak → auto-send.
+- **In the car, one tap (v0.10):** a ♡ "More like this" button on the AA
+  now-playing screen requests something similar to the current track.
 - **Steering-wheel voice button:** Android reserves it for the system
-  assistant — apps can't capture it directly. It still works indirectly:
-  press it and say "play *song* on Subwave Auto".
+  assistant — apps can't capture it directly. Where the assistant still
+  routes media voice commands, "play *song* on Subwave Auto" works; newer
+  Gemini builds refuse this for third-party apps (their policy, not
+  fixable app-side).
 
 ## Quickstart
 

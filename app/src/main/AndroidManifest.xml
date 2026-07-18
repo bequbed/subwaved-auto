@@ -38,6 +38,10 @@
                 <action android:name="android.media.action.MEDIA_PLAY_FROM_SEARCH" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
+            <!-- v0.10: launcher shortcut → straight into the voice-request dialog -->
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/shortcuts" />
         </activity>
 
         <!-- v0.5: read-only cover-art provider — Android Auto's artwork contract
