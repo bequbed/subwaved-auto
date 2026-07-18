@@ -48,7 +48,7 @@ Releases page.
 Requests go to the station's `POST /api/request` and the AI DJ answers **on
 air** — no screen time needed while driving:
 
-- **In the car (voice):** "Hey Google, play *Mr. Roboto* on SUB/WAVE Auto" —
+- **In the car (voice):** "Hey Google, play *Mr. Roboto* on Subwave Auto" —
   the live stream keeps playing and the request is submitted. AA's search box
   works too: type anything, tap the single "Request: …" result.
 - **On the phone:** the "Request a song" box shows the DJ's reply in-app.
@@ -59,7 +59,7 @@ air** — no screen time needed while driving:
   countdown with a Cancel button.
 - **Steering-wheel voice button:** Android reserves it for the system
   assistant — apps can't capture it directly. It still works indirectly:
-  press it and say "play *song* on SUB/WAVE Auto".
+  press it and say "play *song* on Subwave Auto".
 
 ## Quickstart
 

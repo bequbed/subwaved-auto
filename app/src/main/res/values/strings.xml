@@ -1,6 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- In-app header / brand identity (keeps the SUB/WAVE styling). -->
     <string name="app_name">SUB/WAVE Auto</string>
+    <!-- Launcher + assistant-facing label. Slash-free and plainly spelled so
+         voice assistants resolve "play X on Subwave Auto" reliably — the "/"
+         and all-caps of the brand name trip up speech app-name matching. -->
+    <string name="app_launcher_label">Subwave Auto</string>
 
     <!-- WP4 phone UI -->
     <string name="now_playing_empty">—</string>
