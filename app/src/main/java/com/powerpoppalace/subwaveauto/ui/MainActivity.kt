@@ -1,12 +1,15 @@
 package com.powerpoppalace.subwaveauto.ui
 
 import android.Manifest
+import android.app.SearchManager
 import android.content.ComponentName
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.BitmapFactory
 import android.os.Build
 import android.os.Bundle
+import android.provider.MediaStore
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -89,8 +92,33 @@ class MainActivity : ComponentActivity() {
     /** Compose-observable handle; null until the session connects (or if it fails). */
     private val controller = mutableStateOf<MediaController?>(null)
 
+    /**
+     * v0.8.1: pending MEDIA_PLAY_FROM_SEARCH voice launch ("play X on SUB/WAVE
+     * Auto" deep-linked by Assistant/Gemini). Consumed by MainScreen once the
+     * controller connects: playback starts, and a non-blank query is submitted
+     * to the station as a song request — mirroring the in-car voice path.
+     * The value distinguishes "launch with a query" from "no voice launch";
+     * a blank query (bare "play some music") still starts playback.
+     */
+    private val voiceLaunch = mutableStateOf<VoiceLaunch?>(null)
+
+    /** One captured voice launch; [query] null when the assistant sent none. */
+    class VoiceLaunch(val query: String?)
+
+    private fun captureVoiceLaunch(intent: Intent?) {
+        if (intent?.action != MediaStore.INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH) return
+        val query = intent.getStringExtra(SearchManager.QUERY)?.trim()?.takeIf { it.isNotEmpty() }
+        voiceLaunch.value = VoiceLaunch(query)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        captureVoiceLaunch(intent)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        captureVoiceLaunch(intent)
 
         val token = SessionToken(this, ComponentName(this, PLAYBACK_SERVICE_CLASS))
         val future = MediaController.Builder(this, token).buildAsync()
@@ -111,7 +139,11 @@ class MainActivity : ComponentActivity() {
         setContent {
             MaterialTheme(colorScheme = darkColorScheme()) {
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    MainScreen(controller.value)
+                    MainScreen(
+                        controller = controller.value,
+                        voiceLaunch = voiceLaunch.value,
+                        onVoiceLaunchConsumed = { voiceLaunch.value = null },
+                    )
                 }
             }
         }
@@ -193,13 +225,33 @@ private fun rememberPlayerUiState(controller: MediaController?): PlayerUiState {
 }
 
 @Composable
-private fun MainScreen(controller: MediaController?) {
+private fun MainScreen(
+    controller: MediaController?,
+    voiceLaunch: MainActivity.VoiceLaunch? = null,
+    onVoiceLaunchConsumed: () -> Unit = {},
+) {
     val context = LocalContext.current
     val player = rememberPlayerUiState(controller)
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
     NotificationPermissionRequest()
+
+    // v0.8.1: a MEDIA_PLAY_FROM_SEARCH voice launch. Waits for the controller
+    // (both keys re-run the effect), then: start playback, and submit a
+    // non-blank query as a song request — the DJ answers on air, and the
+    // snackbar echoes the server's reply.
+    val voiceRequestFallback = stringResource(R.string.request_sent)
+    LaunchedEffect(controller, voiceLaunch) {
+        val launch = voiceLaunch ?: return@LaunchedEffect
+        val c = controller ?: return@LaunchedEffect
+        onVoiceLaunchConsumed()
+        c.play()
+        val query = launch.query ?: return@LaunchedEffect
+        val reply = StationApi(StationPrefs.baseUrl(context))
+            .postRequest(query, StationPrefs.listenerName(context))
+        snackbarHostState.showSnackbar(reply?.message ?: voiceRequestFallback)
+    }
 
     var urlInput by rememberSaveable { mutableStateOf(StationPrefs.baseUrl(context)) }
     var urlError by rememberSaveable { mutableStateOf(false) }

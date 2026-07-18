@@ -22,10 +22,21 @@
 
         <activity
             android:name=".ui.MainActivity"
-            android:exported="true">
+            android:exported="true"
+            android:launchMode="singleTask">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- v0.8.1: the documented voice-search hook ("play X on <app>").
+                 Assistant/Gemini can deep-link this instead of (or as well as)
+                 the media-session playFromSearch route; the query becomes a
+                 station song request and playback starts — same behavior as
+                 the in-car voice path. singleTask so a voice launch while the
+                 app is open reuses the instance via onNewIntent. -->
+            <intent-filter>
+                <action android:name="android.media.action.MEDIA_PLAY_FROM_SEARCH" />
+                <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
 
