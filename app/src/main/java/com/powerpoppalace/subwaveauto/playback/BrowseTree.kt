@@ -106,11 +106,25 @@ class BrowseTree(var api: StationApi) : MediaLibrarySession.Callback {
      * [MORE_LIKE_THIS_TEXT] as a listener request against the current track —
      * the only kind of one-tap request the AA platform allows (free-text needs
      * voice/search, which the system assistant owns).
+     *
+     * v0.10.1: playlist-add glyph, not a heart — a heart reads as "like/favorite
+     * this song", which this is not. [sent] renders the transient post-press
+     * state (check mark + "Request sent") the service flashes for a few seconds
+     * as tap feedback before reverting.
      */
+<<<<<<< Updated upstream
     internal fun moreLikeThisButton(): CommandButton =
         CommandButton.Builder(CommandButton.ICON_SHUFFLE_STAR)
             .setDisplayName("More like this")
+=======
+    internal fun requestButton(sent: Boolean): CommandButton =
+        CommandButton.Builder(
+            if (sent) CommandButton.ICON_CHECK_CIRCLE_FILLED else CommandButton.ICON_PLAYLIST_ADD,
+        )
+            .setDisplayName(if (sent) "Request sent" else "More like this")
+>>>>>>> Stashed changes
             .setSessionCommand(SessionCommand(ACTION_MORE_LIKE_THIS, Bundle.EMPTY))
+            .setEnabled(!sent)
             .build()
 
     /** Pure seam for [onCustomCommand]: true when [action] was ours and fired. */
@@ -132,7 +146,7 @@ class BrowseTree(var api: StationApi) : MediaLibrarySession.Callback {
             .build()
         return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
             .setAvailableSessionCommands(commands)
-            .setCustomLayout(ImmutableList.of(moreLikeThisButton()))
+            .setCustomLayout(ImmutableList.of(requestButton(sent = false)))
             .build()
     }
 

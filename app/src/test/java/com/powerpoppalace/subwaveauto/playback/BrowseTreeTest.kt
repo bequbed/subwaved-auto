@@ -154,11 +154,24 @@ class BrowseTreeTest {
     }
 
     @Test
-    fun moreLikeThisButton_carriesTheSessionCommand() {
-        val button = tree.moreLikeThisButton()
+    fun requestButton_normalState_carriesTheSessionCommand() {
+        val button = tree.requestButton(sent = false)
         assertEquals(ACTION_MORE_LIKE_THIS, button.sessionCommand?.customAction)
         assertEquals("More like this", button.displayName.toString())
+<<<<<<< Updated upstream
         assertEquals(CommandButton.ICON_SHUFFLE_STAR, button.icon)
+=======
+        assertTrue(button.isEnabled)
+    }
+
+    @Test
+    fun requestButton_sentState_disabledConfirmation() {
+        // v0.10.1 tap feedback: the flashed state must read as a confirmation
+        // and not accept a second tap while it's up.
+        val button = tree.requestButton(sent = true)
+        assertEquals("Request sent", button.displayName.toString())
+        assertFalse(button.isEnabled)
+>>>>>>> Stashed changes
     }
 
     @Test

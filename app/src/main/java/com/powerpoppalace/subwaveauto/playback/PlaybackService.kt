@@ -15,6 +15,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.extractor.metadata.icy.IcyInfo
 import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaSession
+import com.google.common.collect.ImmutableList
 import com.powerpoppalace.subwaveauto.art.ArtDiagnostics
 import com.powerpoppalace.subwaveauto.art.ArtMode
 import com.powerpoppalace.subwaveauto.art.ArtworkStore
@@ -73,6 +74,9 @@ class PlaybackService : MediaLibraryService() {
     /** Pending error auto-retry (WP2 step 5). */
     private var retryJob: Job? = null
 
+    /** v0.10.1: pending revert of the "Request sent ✓" button flash. */
+    private var requestFeedbackJob: Job? = null
+
     /** True once [onPlayerError] has spent its single auto-retry; reset when playback reaches READY. */
     private var retriedAfterError = false
 
@@ -104,14 +108,17 @@ class PlaybackService : MediaLibraryService() {
         player.setMediaItem(freshLiveItem())
 
         browseTree = BrowseTree(stationApi)
-        // v0.8 song requests from the car: voice searches / AA search-result taps
-        // become POST /api/request against the CURRENT station (read at fire time —
-        // a base-URL change mid-session must not send requests to the old one).
-        // Fire-and-forget: the DJ acknowledges on air, so there is no UI to update.
+        // v0.8 song requests from the car: voice searches / AA search-result taps /
+        // the "More like this" button become POST /api/request against the CURRENT
+        // station (read at fire time — a base-URL change mid-session must not send
+        // requests to the old one). Fire-and-forget for the reply (the DJ
+        // acknowledges on air); v0.10.1 flashes the custom button into a
+        // "Request sent ✓" state as the immediate visual tap feedback.
         browseTree.onSongRequest = { text ->
             serviceScope.launch {
                 stationApi.postRequest(text, StationPrefs.listenerName(this@PlaybackService))
             }
+            showRequestSentFeedback()
         }
         session = MediaLibrarySession.Builder(this, player, browseTree).build()
 
@@ -151,6 +158,23 @@ class PlaybackService : MediaLibraryService() {
 
     /** One session for ALL controllers — AA, Bluetooth, notification, phone UI. */
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession = session
+
+    /**
+     * v0.10.1: visible confirmation that a request went out — the custom AA
+     * button flips to a disabled "Request sent ✓" for a few seconds, then
+     * reverts. Fired for EVERY request path (button, voice, search-result tap)
+     * so the car always shows the same ack; a rapid second request just
+     * restarts the flash. Main thread (media3 session contract — the request
+     * hook runs in session callbacks, which arrive there already).
+     */
+    private fun showRequestSentFeedback() {
+        requestFeedbackJob?.cancel()
+        requestFeedbackJob = serviceScope.launch {
+            session.setCustomLayout(ImmutableList.of(browseTree.requestButton(sent = true)))
+            delay(REQUEST_FEEDBACK_MS)
+            session.setCustomLayout(ImmutableList.of(browseTree.requestButton(sent = false)))
+        }
+    }
 
     /**
      * v0.6 (Samsung/S24 artless-AA reports): explicitly grant read access on a
@@ -194,6 +218,7 @@ class PlaybackService : MediaLibraryService() {
         destroyed = true
         liveMetadata.stop()
         retryJob?.cancel()
+        requestFeedbackJob?.cancel()
         serviceScope.cancel()
         session.release()
         player.release()
@@ -323,6 +348,9 @@ class PlaybackService : MediaLibraryService() {
 
         /** Delay before the single automatic error retry (WP2 step 5). */
         const val RETRY_DELAY_MS = 3_000L
+
+        /** v0.10.1: how long the "Request sent ✓" button flash stays up. */
+        const val REQUEST_FEEDBACK_MS = 5_000L
 
         /**
          * Art-rendering processes that may load a session artwork URI without
