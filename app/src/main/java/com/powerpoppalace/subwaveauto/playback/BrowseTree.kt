@@ -108,7 +108,7 @@ class BrowseTree(var api: StationApi) : MediaLibrarySession.Callback {
      * voice/search, which the system assistant owns).
      */
     internal fun moreLikeThisButton(): CommandButton =
-        CommandButton.Builder(CommandButton.ICON_HEART_UNFILLED)
+        CommandButton.Builder(CommandButton.ICON_SHUFFLE_STAR)
             .setDisplayName("More like this")
             .setSessionCommand(SessionCommand(ACTION_MORE_LIKE_THIS, Bundle.EMPTY))
             .build()

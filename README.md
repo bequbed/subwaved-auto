@@ -60,7 +60,7 @@ air** — no screen time needed while driving:
 - **Home-screen shortcut (v0.10):** long-press the launcher icon and pin
   "Request a song" — tapping it opens straight into the speech dialog.
   One tap → speak → auto-send.
-- **In the car, one tap (v0.10):** a ♡ "More like this" button on the AA
+- **In the car, one tap (v0.10):** a shuffle-with-sparkle "More like this" button on the AA
   now-playing screen requests something similar to the current track.
 - **Steering-wheel voice button:** Android reserves it for the system
   assistant — apps can't capture it directly. Where the assistant still

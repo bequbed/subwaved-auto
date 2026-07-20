@@ -3,6 +3,7 @@ package com.powerpoppalace.subwaveauto.playback
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.MimeTypes
+import androidx.media3.session.CommandButton
 import com.powerpoppalace.subwaveauto.net.StationApi
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -157,6 +158,7 @@ class BrowseTreeTest {
         val button = tree.moreLikeThisButton()
         assertEquals(ACTION_MORE_LIKE_THIS, button.sessionCommand?.customAction)
         assertEquals("More like this", button.displayName.toString())
+        assertEquals(CommandButton.ICON_SHUFFLE_STAR, button.icon)
     }
 
     @Test
