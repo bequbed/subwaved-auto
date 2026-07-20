@@ -172,6 +172,66 @@ class StationApi(
         }
     }
 
+    /**
+     * Like state for the on-air track (v0.11). [enabled] false means the
+     * station has likes turned off — hide the button. [songId] is the current
+     * likeable track (null when nothing likeable). [liked] is whether THIS
+     * listener already liked it; [count] the running total.
+     */
+    class LikeState(
+        val enabled: Boolean,
+        val liked: Boolean,
+        val count: Int,
+        val songId: String?,
+    )
+
+    /** GET `{base}/api/like` — current like state (enabled/liked/count). Null on failure. */
+    suspend fun likeState(): LikeState? = withContext(Dispatchers.IO) {
+        try {
+            val request = Request.Builder().url("$baseUrl/api/like").get().build()
+            client.newCall(request).execute().use { resp ->
+                if (!resp.isSuccessful) return@withContext null
+                val body = resp.body?.string()
+                if (body.isNullOrBlank()) return@withContext null
+                parseLikeState(body)
+            }
+        } catch (ce: CancellationException) {
+            throw ce
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /**
+     * POST `{base}/api/like` — like the on-air track. [songId] guards against a
+     * stale tap (the server 409s if it no longer matches what's playing); pass
+     * null to like WHATEVER is currently on air (the Android Auto button, which
+     * has no song id to hand). Returns the post-like state, or null on network
+     * failure. A 409/403/429 still returns a parsed state where possible.
+     */
+    suspend fun like(songId: String?): LikeState? = withContext(Dispatchers.IO) {
+        try {
+            val payload = JSONObject()
+                .apply { if (!songId.isNullOrBlank()) put("songId", songId) }
+                .toString()
+            val request = Request.Builder()
+                .url("$baseUrl/api/like")
+                .post(payload.toRequestBody("application/json".toMediaType()))
+                .build()
+            client.newCall(request).execute().use { resp ->
+                val body = resp.body?.string()
+                if (body.isNullOrBlank()) return@withContext null
+                // 403 = likes disabled on this station.
+                if (resp.code == 403) return@withContext LikeState(false, false, 0, null)
+                parseLikeState(body)
+            }
+        } catch (ce: CancellationException) {
+            throw ce
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     /** GET `{base}/api/request/{id}` — the request's current status. Null on any failure. */
     suspend fun pollRequest(id: String): RequestResult? = withContext(Dispatchers.IO) {
         try {
@@ -201,6 +261,25 @@ class StationApi(
          * The display line prefers `ack` (the DJ's on-air acknowledgment) over
          * the drier `message`. Null only for non-JSON garbage. Pure, JVM-tested.
          */
+        /**
+         * Parse a like response — both GET /like ({enabled, songId, liked,
+         * count}) and POST /like success ({ok, liked, count, songId,
+         * alreadyLiked}). `enabled` absent (POST success omits it) reads as
+         * true; an error body ({error, songId?}) yields liked=false, count=0.
+         * Pure, JVM-tested.
+         */
+        internal fun parseLikeState(body: String): StationApi.LikeState? = try {
+            val o = JSONObject(body)
+            LikeState(
+                enabled = if (o.has("enabled")) o.optBoolean("enabled", true) else true,
+                liked = o.optBoolean("liked", false),
+                count = o.optInt("count", 0).coerceAtLeast(0),
+                songId = str(o, "songId"),
+            )
+        } catch (_: Exception) {
+            null
+        }
+
         internal fun parseRequestResult(body: String): RequestResult? = try {
             val o = JSONObject(body)
             RequestResult(

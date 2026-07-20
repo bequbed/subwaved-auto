@@ -15,7 +15,6 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.extractor.metadata.icy.IcyInfo
 import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaSession
-import com.google.common.collect.ImmutableList
 import com.powerpoppalace.subwaveauto.art.ArtDiagnostics
 import com.powerpoppalace.subwaveauto.art.ArtMode
 import com.powerpoppalace.subwaveauto.art.ArtworkStore
@@ -118,7 +117,14 @@ class PlaybackService : MediaLibraryService() {
             serviceScope.launch {
                 stationApi.postRequest(text, StationPrefs.listenerName(this@PlaybackService))
             }
-            showRequestSentFeedback()
+            flashCustomButton(request = true, like = false)
+        }
+        // v0.11 like (heart) button: POST /api/like against the CURRENT station,
+        // no songId — the server likes whatever's on air. Fire-and-forget with a
+        // "Liked ✓" button flash.
+        browseTree.onLike = {
+            serviceScope.launch { stationApi.like(null) }
+            flashCustomButton(request = false, like = true)
         }
         session = MediaLibrarySession.Builder(this, player, browseTree).build()
 
@@ -160,19 +166,18 @@ class PlaybackService : MediaLibraryService() {
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession = session
 
     /**
-     * v0.10.1: visible confirmation that a request went out — the custom AA
-     * button flips to a disabled "Request sent ✓" for a few seconds, then
-     * reverts. Fired for EVERY request path (button, voice, search-result tap)
-     * so the car always shows the same ack; a rapid second request just
-     * restarts the flash. Main thread (media3 session contract — the request
-     * hook runs in session callbacks, which arrive there already).
+     * v0.10.1 / v0.11: visible confirmation that a request or like went out —
+     * the pressed custom AA button flips to a disabled "…sent"/"Liked ✓" for a
+     * few seconds, then the whole row reverts to neutral. One shared job, so a
+     * rapid second press just restarts the flash. Main thread (media3 session
+     * contract — the hooks run in session callbacks, already on it).
      */
-    private fun showRequestSentFeedback() {
+    private fun flashCustomButton(request: Boolean, like: Boolean) {
         requestFeedbackJob?.cancel()
         requestFeedbackJob = serviceScope.launch {
-            session.setCustomLayout(ImmutableList.of(browseTree.requestButton(sent = true)))
+            session.setCustomLayout(browseTree.customLayout(requestSent = request, likeFlashed = like))
             delay(REQUEST_FEEDBACK_MS)
-            session.setCustomLayout(ImmutableList.of(browseTree.requestButton(sent = false)))
+            session.setCustomLayout(browseTree.customLayout(requestSent = false, likeFlashed = false))
         }
     }
 

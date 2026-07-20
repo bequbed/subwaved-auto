@@ -43,6 +43,14 @@ Development builds (every push to a working branch) also land in
 [`dist/`](dist/) on that branch; those may be debug-signed — prefer the
 Releases page.
 
+## Like the on-air song (v0.11)
+
+Tap the heart — on the phone now-playing screen (with a live like count) or
+the ♡ button on the Android Auto now-playing screen — to like the current
+track via the station's `/api/like`. The phone heart fills once you've liked
+it; the car button flashes a "Liked ✓" confirmation. Hidden when the station
+has likes disabled.
+
 ## Song requests (v0.8)
 
 Requests go to the station's `POST /api/request` and the AI DJ answers **on

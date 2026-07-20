@@ -172,6 +172,41 @@ class BrowseTreeTest {
         assertFalse(button.isEnabled)
     }
 
+    // --- v0.11 Like (heart) custom AA button ---
+
+    @Test
+    fun handleCustomAction_like_firesOnLike() {
+        var liked = false
+        var requested: String? = null
+        tree.onLike = { liked = true }
+        tree.onSongRequest = { requested = it }
+        assertTrue(tree.handleCustomAction(ACTION_LIKE))
+        assertTrue(liked)
+        assertEquals("like must not fire a song request", null, requested)
+    }
+
+    @Test
+    fun likeButton_states() {
+        val idle = tree.likeButton(flashed = false)
+        assertEquals(ACTION_LIKE, idle.sessionCommand?.customAction)
+        assertEquals("Like this song", idle.displayName.toString())
+        assertEquals(CommandButton.ICON_HEART_UNFILLED, idle.icon)
+        assertTrue(idle.isEnabled)
+
+        val flashed = tree.likeButton(flashed = true)
+        assertEquals("Liked", flashed.displayName.toString())
+        assertEquals(CommandButton.ICON_CHECK_CIRCLE_FILLED, flashed.icon)
+        assertFalse(flashed.isEnabled)
+    }
+
+    @Test
+    fun customLayout_hasBothButtonsInOrder() {
+        val layout = tree.customLayout(requestSent = false, likeFlashed = false)
+        assertEquals(2, layout.size)
+        assertEquals(ACTION_MORE_LIKE_THIS, layout[0].sessionCommand?.customAction)
+        assertEquals(ACTION_LIKE, layout[1].sessionCommand?.customAction)
+    }
+
     @Test
     fun requestItemFor_playableCardCarryingTheQuery() {
         val item = tree.requestItemFor("mr roboto")

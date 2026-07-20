@@ -33,6 +33,9 @@ internal const val ACTION_MORE_LIKE_THIS = "com.powerpoppalace.subwaveauto.MORE_
  *  fast path for exactly this phrase (no LLM round-trip). */
 internal const val MORE_LIKE_THIS_TEXT = "more like this"
 
+/** v0.11: custom session command behind the one-tap AA "Like" (heart) button. */
+internal const val ACTION_LIKE = "com.powerpoppalace.subwaveauto.LIKE"
+
 /**
  * The fully-formed live [MediaItem], per the §1 invariants: mediaId [LIVE_ITEM_ID],
  * a FRESH cache-busted stream URI on every call (never reuse an old `?t=`), explicit
@@ -88,6 +91,13 @@ class BrowseTree(var api: StationApi) : MediaLibrarySession.Callback {
     var onSongRequest: ((String) -> Unit)? = null
 
     /**
+     * v0.11: invoked when the AA "Like" (heart) button is pressed. PlaybackService
+     * wires it to `POST /api/like` (no songId — likes whatever is on air) and
+     * flashes the button. Assigned once at startup (main thread, like [api]).
+     */
+    var onLike: (() -> Unit)? = null
+
+    /**
      * Extract the request text a controller attached to a play command, or null:
      * either a voice search riding [MediaItem.requestMetadata]'s searchQuery, or
      * the [REQUEST_ITEM_PREFIX] mediaId minted by [onGetSearchResult]. Pure.
@@ -121,13 +131,40 @@ class BrowseTree(var api: StationApi) : MediaLibrarySession.Callback {
             .setEnabled(!sent)
             .build()
 
+    /**
+     * v0.11: the one-tap "Like" (heart) button on the AA now-playing screen.
+     * A press likes whatever is on air (`POST /api/like`, no songId). [flashed]
+     * renders the transient post-press "Liked ✓" confirmation.
+     */
+    internal fun likeButton(flashed: Boolean): CommandButton =
+        CommandButton.Builder(
+            if (flashed) CommandButton.ICON_CHECK_CIRCLE_FILLED else CommandButton.ICON_HEART_UNFILLED,
+        )
+            .setDisplayName(if (flashed) "Liked" else "Like this song")
+            .setSessionCommand(SessionCommand(ACTION_LIKE, Bundle.EMPTY))
+            .setEnabled(!flashed)
+            .build()
+
+    /**
+     * The full AA custom-button row (v0.11): "More like this" + "Like". Either
+     * button's [requestSent] / [likeFlashed] renders its transient confirmation
+     * while the other stays neutral — PlaybackService rebuilds the whole row to
+     * flash one of them.
+     */
+    internal fun customLayout(requestSent: Boolean, likeFlashed: Boolean): ImmutableList<CommandButton> =
+        ImmutableList.of(requestButton(requestSent), likeButton(likeFlashed))
+
     /** Pure seam for [onCustomCommand]: true when [action] was ours and fired. */
-    internal fun handleCustomAction(action: String): Boolean {
-        if (action == ACTION_MORE_LIKE_THIS) {
+    internal fun handleCustomAction(action: String): Boolean = when (action) {
+        ACTION_MORE_LIKE_THIS -> {
             onSongRequest?.invoke(MORE_LIKE_THIS_TEXT)
-            return true
+            true
         }
-        return false
+        ACTION_LIKE -> {
+            onLike?.invoke()
+            true
+        }
+        else -> false
     }
 
     override fun onConnect(
@@ -137,10 +174,11 @@ class BrowseTree(var api: StationApi) : MediaLibrarySession.Callback {
         val commands = MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS
             .buildUpon()
             .add(SessionCommand(ACTION_MORE_LIKE_THIS, Bundle.EMPTY))
+            .add(SessionCommand(ACTION_LIKE, Bundle.EMPTY))
             .build()
         return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
             .setAvailableSessionCommands(commands)
-            .setCustomLayout(ImmutableList.of(requestButton(sent = false)))
+            .setCustomLayout(customLayout(requestSent = false, likeFlashed = false))
             .build()
     }
 

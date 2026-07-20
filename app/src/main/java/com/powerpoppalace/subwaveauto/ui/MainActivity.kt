@@ -325,6 +325,9 @@ private fun MainScreen(
             // while playing (the session metadata doesn't carry them).
             StationInfoLine(isPlaying = player.isPlaying)
 
+            // v0.11: like the on-air track (heart + live count).
+            LikeButton(isPlaying = player.isPlaying, trackKey = player.title to player.artist)
+
             Spacer(Modifier.height(32.dp))
 
             // Big Play/Pause toggle. play() on a fresh (idle) controller is enough:
@@ -507,6 +510,57 @@ private fun StationInfoLine(isPlaying: Boolean) {
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
+        )
+    }
+}
+
+/**
+ * v0.11: "Like this song" — a heart with the live like-count, backed by the
+ * station's `/api/like`. Loads state on entry and whenever the track changes
+ * ([trackKey]); a tap likes the on-air song and reflects the server's updated
+ * count. Hidden entirely when the station has likes disabled or nothing is
+ * likeable (a DJ break). Best-effort: any network hiccup just hides it.
+ */
+@Composable
+private fun LikeButton(isPlaying: Boolean, trackKey: Pair<String?, String?>) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var state by remember { mutableStateOf<StationApi.LikeState?>(null) }
+    var busy by remember { mutableStateOf(false) }
+
+    // (Re)load on track change while playing. Paused → clear (avoid a stale heart).
+    LaunchedEffect(isPlaying, trackKey) {
+        state = if (isPlaying) StationApi(StationPrefs.baseUrl(context)).likeState() else null
+    }
+
+    val s = state
+    if (s == null || !s.enabled || s.songId == null) return
+
+    Spacer(Modifier.height(10.dp))
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Button(
+            enabled = !busy && !s.liked,
+            onClick = {
+                busy = true
+                scope.launch {
+                    try {
+                        val updated = StationApi(StationPrefs.baseUrl(context)).like(s.songId)
+                        if (updated != null) state = updated
+                    } finally {
+                        busy = false
+                    }
+                }
+            },
+        ) {
+            // Filled heart once liked; outline until then. Emoji dodges an
+            // icon-pack dependency, matching the 🎤 button's approach.
+            Text(if (s.liked) "❤️" else "🤍")
+        }
+        Spacer(Modifier.size(10.dp))
+        Text(
+            text = if (s.count == 1) "1 like" else "${s.count} likes",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }

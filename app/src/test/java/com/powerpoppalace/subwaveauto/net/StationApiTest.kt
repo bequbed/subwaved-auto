@@ -385,6 +385,71 @@ class StationApiTest {
         assertEquals(null, StationApi.parseRequestResult("not json"))
     }
 
+    // --- v0.11 likes ---
+
+    @Test
+    fun likeState_parsesEnabledLikedCount() = runBlocking {
+        server.enqueue(
+            MockResponse().setBody(
+                """{"enabled": true, "songId": "abc", "liked": false, "count": 12}"""
+            )
+        )
+        val s = api.likeState()
+        requireNotNull(s)
+        assertTrue(s.enabled)
+        assertFalse(s.liked)
+        assertEquals(12, s.count)
+        assertEquals("abc", s.songId)
+        assertEquals("/api/like", server.takeRequest().path)
+    }
+
+    @Test
+    fun like_postsSongIdAndParsesUpdatedCount() = runBlocking {
+        server.enqueue(
+            MockResponse().setBody(
+                """{"ok": true, "songId": "abc", "liked": true, "alreadyLiked": false, "count": 13}"""
+            )
+        )
+        val s = api.like("abc")
+        requireNotNull(s)
+        assertTrue(s.liked)
+        assertEquals(13, s.count)
+
+        val recorded = server.takeRequest()
+        assertEquals("/api/like", recorded.path)
+        assertTrue(recorded.body.readUtf8().contains("\"songId\":\"abc\""))
+    }
+
+    @Test
+    fun like_nullSongId_sendsEmptyBodyObject() = runBlocking {
+        // The AA button likes whatever's on air — no songId sent.
+        server.enqueue(MockResponse().setBody("""{"ok": true, "liked": true, "count": 1}"""))
+        api.like(null)
+        val sent = server.takeRequest().body.readUtf8()
+        assertFalse("no songId key when null", sent.contains("songId"))
+    }
+
+    @Test
+    fun like_disabledStation_403_returnsDisabledState() = runBlocking {
+        server.enqueue(
+            MockResponse().setResponseCode(403).setBody("""{"error": "Likes are disabled on this station"}""")
+        )
+        val s = api.like("abc")
+        assertEquals(false, s?.enabled)
+    }
+
+    @Test
+    fun parseLikeState_postSuccessOmittingEnabled_readsEnabledTrue() {
+        val s = StationApi.parseLikeState("""{"ok": true, "liked": true, "count": 5}""")
+        assertEquals(true, s?.enabled)
+        assertEquals(5, s?.count)
+    }
+
+    @Test
+    fun parseLikeState_garbage_returnsNull() {
+        assertEquals(null, StationApi.parseLikeState("nope"))
+    }
+
     @Test
     fun fetchArt_happyPath_returnsBytesAndMime() = runBlocking {
         val bytes = byteArrayOf(0x50, 0x4E, 0x47, 1, 2, 3, 4, 5)
