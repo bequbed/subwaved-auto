@@ -307,6 +307,31 @@ class StationApiTest {
         assertEquals("Basement Transmission", np?.stationName)
     }
 
+    @Test
+    fun nowPlaying_listenersNestedCountObject_parsed() = runBlocking {
+        // The live SUB/WAVE stations send listeners as an object {count: N}, not a
+        // bare int (verified 2026-07-20) — the "· N listening" line must read it.
+        server.enqueue(
+            MockResponse().setBody(
+                """
+                {
+                  "nowPlaying": {"title": "T", "artist": "A"},
+                  "listeners": {"count": 7},
+                  "dj": {"name": "Saffron"}
+                }
+                """.trimIndent()
+            )
+        )
+        assertEquals(7, api.nowPlaying()?.listeners)
+    }
+
+    @Test
+    fun nowPlaying_listenersEmptyObject_isNull() = runBlocking {
+        // A listeners object with no count → null (line hides), not 0.
+        server.enqueue(MockResponse().setBody("""{"nowPlaying": {"title": "T"}, "listeners": {}}"""))
+        assertEquals(null, api.nowPlaying()?.listeners)
+    }
+
     // --- v0.8 song requests ---
 
     @Test

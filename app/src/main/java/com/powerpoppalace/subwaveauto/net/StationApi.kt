@@ -429,11 +429,7 @@ class StationApi(
                     stationName = o.optJSONObject("dj")?.let { str(it, "station") },
                     // v0.8 phone-UI enrichment: DJ persona name + listener count.
                     djName = o.optJSONObject("dj")?.let { str(it, "name") },
-                    listeners = if (o.has("listeners") && !o.isNull("listeners")) {
-                        o.optInt("listeners", -1).takeIf { it >= 0 }
-                    } else {
-                        null
-                    },
+                    listeners = listenerCount(o),
                     // v0.12.1 "On air": the authoritative active show, wherever
                     // the payload carries it (takeover/override included). The
                     // live station nests it under `context.activeShow` and
@@ -450,6 +446,20 @@ class StationApi(
             } catch (_: Exception) {
                 null
             }
+        }
+
+        /**
+         * Listener count from the `listeners` field, tolerating both shapes: the
+         * live SUB/WAVE stations send a nested object `{"count": N}` (verified
+         * 2026-07-20), while older/other payloads send a bare integer. Null when
+         * absent or negative. Pure.
+         */
+        private fun listenerCount(o: JSONObject): Int? {
+            if (!o.has("listeners") || o.isNull("listeners")) return null
+            o.optJSONObject("listeners")?.let { obj ->
+                return obj.optInt("count", -1).takeIf { it >= 0 }
+            }
+            return o.optInt("listeners", -1).takeIf { it >= 0 }
         }
 
         /** Non-blank string field or null (org.json's optString would return ""). */

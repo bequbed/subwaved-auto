@@ -22,8 +22,8 @@ android {
         applicationId = "com.powerpoppalace.subwaveauto"
         minSdk = 26
         targetSdk = 36
-        versionCode = 18
-        versionName = "0.12.2"
+        versionCode = 19
+        versionName = "0.12.3"
     }
 
     signingConfigs {
