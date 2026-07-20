@@ -39,13 +39,6 @@
     <string name="cancel">Cancel</string>
     <string name="voice_unavailable">Voice input isn\'t available on this device</string>
 
-    <!-- v0.12: station presets -->
-    <string name="stations_section_title">Saved stations</string>
-    <string name="preset_name_hint">Preset name</string>
-    <string name="preset_save">Save as preset</string>
-    <string name="preset_saved">Station saved</string>
-    <string name="station_switched">Tuned in: %1$s</string>
-
     <!-- v0.10: launcher shortcut straight into the voice-request dialog -->
     <string name="shortcut_request_short">Request</string>
     <string name="shortcut_request_long">Request a song</string>

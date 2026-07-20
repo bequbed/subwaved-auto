@@ -47,17 +47,10 @@ Releases page.
 
 While playing, the phone shows the current show ("On air: …", from the
 station's `activeShow` — overrides included) and the next scheduled show
-with its start time ("Next: Night Owls Tue 21:00"), computed from the
-weekly `/api/schedule` grid in the station's own timezone. Hidden on
-stations without a schedule.
-
-## Multiple stations (v0.12)
-
-Save several SUB/WAVE stations and switch between them. On the phone, enter an
-address, name it, and tap **Save as preset**; saved stations appear as a
-tappable list (the active one marked ▶) and each shows up as its own entry in
-the **Android Auto browse list** — pick one in the car to tune straight in.
-With no presets saved the app behaves exactly as before (one station).
+with its start time ("Next: Deep Focus 10:00"), computed from the weekly
+schedule grid (carried in `/api/state`) in the station's own timezone.
+Hidden on stations without a schedule (e.g. an auto/AI-DJ station with no
+shows configured).
 
 ## Like the on-air song (v0.11)
 

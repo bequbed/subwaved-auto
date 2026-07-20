@@ -247,10 +247,14 @@ class StationApi(
     /** The next scheduled show: name + when (station-local hour, days ahead). */
     class NextShow(val name: String, val dayOffset: Int, val hour: Int)
 
-    /** GET `{base}/api/schedule` — the weekly grid. Null on any failure. */
+    /**
+     * GET `{base}/api/state` — the weekly grid lives here (top-level `shows`,
+     * `schedule`, `timezone`), NOT under a `/api/schedule` route (verified
+     * against the live station 2026-07-20). Null on any failure.
+     */
     suspend fun schedule(): ScheduleInfo? = withContext(Dispatchers.IO) {
         try {
-            val request = Request.Builder().url("$baseUrl/api/schedule").get().build()
+            val request = Request.Builder().url("$baseUrl/api/state").get().build()
             client.newCall(request).execute().use { resp ->
                 if (!resp.isSuccessful) return@withContext null
                 val body = resp.body?.string()
@@ -313,10 +317,11 @@ class StationApi(
         }
 
         /**
-         * Parse the `/api/schedule` payload: `shows` [{id, name}, …] → the name
-         * map, `schedule` {"0".."6": [24 × showId|null]} → the grid, plus the
-         * station `timezone`. Malformed days/entries are skipped, never fatal.
-         * Pure, JVM-tested.
+         * Parse the `/api/state` payload's schedule slice: `shows` [{id, name}, …]
+         * → the name map, `schedule` {"0".."6": [24 × showId|null]} → the grid,
+         * plus the station `timezone`. The state payload carries other keys
+         * (`personas`, `override`, …) that we ignore. Malformed days/entries are
+         * skipped, never fatal. Pure, JVM-tested.
          */
         internal fun parseSchedule(body: String): ScheduleInfo? = try {
             val o = JSONObject(body)
@@ -429,10 +434,18 @@ class StationApi(
                     } else {
                         null
                     },
-                    // v0.12.1 "On air": top-level activeShow (the route's own
-                    // reshaped block), falling back to context.activeShow.
+                    // v0.12.1 "On air": the authoritative active show, wherever
+                    // the payload carries it (takeover/override included). The
+                    // live station nests it under `context.activeShow` and
+                    // `dj.activeShow`, with `session.show` as a plain-string
+                    // fallback (verified against radio.plexservernz.org
+                    // 2026-07-20); a top-level `activeShow` is honored first for
+                    // stations that reshape it there. All are null on an auto-DJ
+                    // station with no scheduled show, which correctly hides the line.
                     showName = o.optJSONObject("activeShow")?.let { str(it, "name") }
-                        ?: o.optJSONObject("context")?.optJSONObject("activeShow")?.let { str(it, "name") },
+                        ?: o.optJSONObject("context")?.optJSONObject("activeShow")?.let { str(it, "name") }
+                        ?: o.optJSONObject("dj")?.optJSONObject("activeShow")?.let { str(it, "name") }
+                        ?: o.optJSONObject("session")?.let { str(it, "show") },
                 )
             } catch (_: Exception) {
                 null

@@ -75,7 +75,6 @@ import com.powerpoppalace.subwaveauto.net.UpdateCheck
 import com.powerpoppalace.subwaveauto.net.UpdateInfo
 import com.powerpoppalace.subwaveauto.net.isNewerVersion
 import com.powerpoppalace.subwaveauto.prefs.StationPrefs
-import com.powerpoppalace.subwaveauto.prefs.StationPreset
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -278,8 +277,6 @@ private fun MainScreen(
     var urlInput by rememberSaveable { mutableStateOf(StationPrefs.baseUrl(context)) }
     var urlError by rememberSaveable { mutableStateOf(false) }
     val savedMessage = stringResource(R.string.station_url_saved)
-    // v0.12 saved-station presets, mirrored into state so add/remove repaints.
-    var presets by remember { mutableStateOf(StationPrefs.presets(context)) }
 
     Scaffold(snackbarHost = { SnackbarHost(snackbarHostState) }) { padding ->
         Column(
@@ -366,28 +363,6 @@ private fun MainScreen(
 
             Spacer(Modifier.height(40.dp))
 
-            // v0.12: saved stations. Tap one to tune in; ✕ removes it. The URL
-            // field below doubles as "add a station". Hidden until you save one.
-            val switchedMessageTemplate = stringResource(R.string.station_switched)
-            StationPresets(
-                presets = presets,
-                activeUrl = urlInput.trim().trimEnd('/'),
-                onSelect = { url, name ->
-                    urlInput = url
-                    urlError = false
-                    StationPrefs.setBaseUrl(context, url)
-                    // Distinct from the URL-field Save flow's message — tapping a
-                    // PRESET switches stations, it doesn't save anything new.
-                    scope.launch {
-                        snackbarHostState.showSnackbar(switchedMessageTemplate.format(name))
-                    }
-                },
-                onRemove = { url ->
-                    StationPrefs.removePreset(context, url)
-                    presets = StationPrefs.presets(context)
-                },
-            )
-
             // Station base URL
             OutlinedTextField(
                 value = urlInput,
@@ -456,36 +431,6 @@ private fun MainScreen(
                 )
             }
 
-            // v0.12: save the address above as a named preset (appears in the
-            // list up top and in the Android Auto browse list).
-            Spacer(Modifier.height(12.dp))
-            var presetName by rememberSaveable { mutableStateOf("") }
-            val presetSavedMsg = stringResource(R.string.preset_saved)
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                OutlinedTextField(
-                    value = presetName,
-                    onValueChange = { presetName = it.take(StationPrefs.LISTENER_NAME_MAX) },
-                    label = { Text(stringResource(R.string.preset_name_hint)) },
-                    singleLine = true,
-                    modifier = Modifier.weight(1f),
-                )
-                Spacer(Modifier.size(8.dp))
-                Button(
-                    enabled = presetName.isNotBlank() && urlInput.isNotBlank(),
-                    onClick = {
-                        StationPrefs.addPreset(context, presetName, urlInput)
-                        presets = StationPrefs.presets(context)
-                        presetName = ""
-                        scope.launch { snackbarHostState.showSnackbar(presetSavedMsg) }
-                    },
-                ) {
-                    Text(stringResource(R.string.preset_save))
-                }
-            }
-
             Spacer(Modifier.height(48.dp))
 
             // Android Auto sideload checklist (v0.8: numbered steps, left-aligned)
@@ -543,8 +488,8 @@ private fun StationInfoLine(isPlaying: Boolean) {
     val context = LocalContext.current
     var line by remember { mutableStateOf<String?>(null) }
     // v0.12.1: "On air: <show> · Next: <show> Tue 15:00" — activeShow from the
-    // same now-playing poll, "next" computed from the weekly /api/schedule grid
-    // in the STATION's timezone.
+    // same now-playing poll, "next" computed from the weekly schedule grid
+    // (carried in /api/state) in the STATION's timezone.
     var showLine by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(isPlaying) {
         if (!isPlaying) {
@@ -552,8 +497,8 @@ private fun StationInfoLine(isPlaying: Boolean) {
             showLine = null
             return@LaunchedEffect
         }
-        // Schedule is fetched once per station URL (it changes rarely); the
-        // presets feature can switch stations mid-session, so track the URL.
+        // Schedule is fetched once per station URL (it changes rarely); the URL
+        // can change mid-session (the URL field's Save), so track it and re-fetch.
         var scheduleUrl: String? = null
         var schedule: StationApi.ScheduleInfo? = null
         while (true) {
@@ -622,49 +567,6 @@ private fun buildShowLine(onAir: String?, schedule: StationApi.ScheduleInfo?): S
         onAir?.let { "On air: $it" },
         next,
     ).joinToString(" · ").takeIf { it.isNotEmpty() }
-}
-
-/**
- * v0.12: saved-station list. Each row tunes in on tap (the active one is
- * highlighted) and has a ✕ to remove it. Renders nothing when no presets are
- * saved, so single-station users see the app exactly as before.
- */
-@Composable
-private fun StationPresets(
-    presets: List<StationPreset>,
-    activeUrl: String,
-    onSelect: (String, String) -> Unit,
-    onRemove: (String) -> Unit,
-) {
-    if (presets.isEmpty()) return
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Text(
-            text = stringResource(R.string.stations_section_title),
-            style = MaterialTheme.typography.titleSmall,
-        )
-        Spacer(Modifier.height(4.dp))
-        presets.forEach { preset ->
-            val active = preset.url == activeUrl
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onSelect(preset.url, preset.name) }
-                    .padding(vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = (if (active) "▶ " else "") + preset.name,
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.weight(1f),
-                )
-                TextButton(onClick = { onRemove(preset.url) }) {
-                    Text("✕")
-                }
-            }
-        }
-        Spacer(Modifier.height(12.dp))
-    }
 }
 
 /**

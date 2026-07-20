@@ -126,12 +126,6 @@ class PlaybackService : MediaLibraryService() {
             serviceScope.launch { stationApi.like(null) }
             flashCustomButton(request = false, like = true)
         }
-        // v0.12 station presets: the browse tree lists saved stations (read
-        // fresh from prefs) and, when one is picked, switches the active station
-        // via StationPrefs — the same base-URL listener below then rebuilds the
-        // client and swaps the live item.
-        browseTree.stations = { StationPrefs.presets(this) }
-        browseTree.onSelectStation = { url -> StationPrefs.setBaseUrl(this, url) }
         session = MediaLibrarySession.Builder(this, player, browseTree).build()
 
         // v0.5: covers persist through ArtworkStore and publish as content://

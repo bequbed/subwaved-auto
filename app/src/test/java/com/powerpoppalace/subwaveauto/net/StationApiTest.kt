@@ -403,6 +403,49 @@ class StationApiTest {
     }
 
     @Test
+    fun nowPlaying_activeShowFromNestedShapes_parsed() = runBlocking {
+        // The live station (radio.plexservernz.org 2026-07-20) has NO top-level
+        // activeShow — it nests the show under context.activeShow / dj.activeShow
+        // (and session.show). "On air" must resolve from those, not only the
+        // top-level block, or a scheduled show never surfaces.
+        server.enqueue(
+            MockResponse().setBody(
+                """
+                {
+                  "nowPlaying": {"title": "Leave Me Alone", "artist": "Michael Jackson"},
+                  "context": {"activeShow": {"id": "s_f378dd", "name": "First Light"}},
+                  "dj": {"name": "Saffron", "station": "Basement Transmission",
+                         "activeShow": {"name": "First Light"}},
+                  "session": {"kind": "show", "show": "First Light"}
+                }
+                """.trimIndent()
+            )
+        )
+        assertEquals("First Light", api.nowPlaying()?.showName)
+    }
+
+    @Test
+    fun nowPlaying_autoDjNullActiveShow_showNameNull() = runBlocking {
+        // Auto-DJ stations (session.kind == "auto") carry no show at all — every
+        // activeShow slot is null and session.show is null. "On air" must stay
+        // null so the line hides rather than inventing a show.
+        server.enqueue(
+            MockResponse().setBody(
+                """
+                {
+                  "nowPlaying": {"title": "T"},
+                  "activeShow": null,
+                  "context": {"show": "drive-time", "activeShow": null},
+                  "dj": {"name": "Rizzy", "activeShow": null},
+                  "session": {"kind": "auto", "show": null}
+                }
+                """.trimIndent()
+            )
+        )
+        assertEquals(null, api.nowPlaying()?.showName)
+    }
+
+    @Test
     fun schedule_parsesShowsGridAndTimezone() = runBlocking {
         server.enqueue(
             MockResponse().setBody(
@@ -422,7 +465,8 @@ class StationApiTest {
         assertEquals(null, s.grid[0]?.get(1))
         assertEquals("s2", s.grid[0]?.get(2))
         assertEquals("Pacific/Auckland", s.timezone)
-        assertEquals("/api/schedule", server.takeRequest().path)
+        // The grid lives in /api/state, not a dedicated /api/schedule route.
+        assertEquals("/api/state", server.takeRequest().path)
     }
 
     @Test
