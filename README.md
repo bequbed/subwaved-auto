@@ -43,6 +43,14 @@ Development builds (every push to a working branch) also land in
 [`dist/`](dist/) on that branch; those may be debug-signed — prefer the
 Releases page.
 
+## Multiple stations (v0.12)
+
+Save several SUB/WAVE stations and switch between them. On the phone, enter an
+address, name it, and tap **Save as preset**; saved stations appear as a
+tappable list (the active one marked ▶) and each shows up as its own entry in
+the **Android Auto browse list** — pick one in the car to tune straight in.
+With no presets saved the app behaves exactly as before (one station).
+
 ## Like the on-air song (v0.11)
 
 Tap the heart — on the phone now-playing screen (with a live like count) or

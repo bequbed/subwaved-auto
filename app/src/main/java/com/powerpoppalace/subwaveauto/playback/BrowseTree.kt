@@ -17,6 +17,7 @@ import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.powerpoppalace.subwaveauto.net.StationApi
+import com.powerpoppalace.subwaveauto.prefs.StationPreset
 
 // §1 contract values (ANDROID_AUTO_PLAN.md) — BrowseTree owns them; PlaybackService
 // (same package) and WP4's UI reference them from here.
@@ -35,6 +36,9 @@ internal const val MORE_LIKE_THIS_TEXT = "more like this"
 
 /** v0.11: custom session command behind the one-tap AA "Like" (heart) button. */
 internal const val ACTION_LIKE = "com.powerpoppalace.subwaveauto.LIKE"
+
+/** v0.12: mediaId prefix for a saved-station browse entry — the URL follows. */
+internal const val STATION_ITEM_PREFIX = "subwave_station:"
 
 /**
  * The fully-formed live [MediaItem], per the §1 invariants: mediaId [LIVE_ITEM_ID],
@@ -96,6 +100,41 @@ class BrowseTree(var api: StationApi) : MediaLibrarySession.Callback {
      * flashes the button. Assigned once at startup (main thread, like [api]).
      */
     var onLike: (() -> Unit)? = null
+
+    /**
+     * v0.12: saved station presets, read fresh per browse (PlaybackService
+     * supplies a StationPrefs-backed lambda). Empty → the browse shows the
+     * single live item, exactly as before presets existed.
+     */
+    var stations: () -> List<StationPreset> = { emptyList() }
+
+    /**
+     * v0.12: invoked with a preset's URL when the listener picks that station
+     * from the AA browse list. PlaybackService points it at
+     * StationPrefs.setBaseUrl, which swaps the active station app-wide.
+     */
+    var onSelectStation: ((String) -> Unit)? = null
+
+    /** The saved station a browse item targets (its [STATION_ITEM_PREFIX] URL), or null. Pure. */
+    internal fun stationUrlFor(item: MediaItem): String? =
+        item.mediaId.takeIf { it.startsWith(STATION_ITEM_PREFIX) }
+            ?.removePrefix(STATION_ITEM_PREFIX)
+            ?.takeIf { it.isNotEmpty() }
+
+    /** A browsable-list entry for one saved station (playable — selecting it tunes in). */
+    internal fun stationItem(preset: StationPreset): MediaItem =
+        MediaItem.Builder()
+            .setMediaId(STATION_ITEM_PREFIX + preset.url)
+            .setMediaMetadata(
+                MediaMetadata.Builder()
+                    .setTitle(preset.name)
+                    .setSubtitle("Live radio")
+                    .setMediaType(MediaMetadata.MEDIA_TYPE_RADIO_STATION)
+                    .setIsPlayable(true)
+                    .setIsBrowsable(false)
+                    .build(),
+            )
+            .build()
 
     /**
      * Extract the request text a controller attached to a play command, or null:
@@ -250,7 +289,25 @@ class BrowseTree(var api: StationApi) : MediaLibrarySession.Callback {
         requested.firstNotNullOfOrNull { requestTextFor(it) }?.let { text ->
             onSongRequest?.invoke(text)
         }
-        return requested.map { liveMediaItem(api) }.toMutableList()
+        return requested.map { item ->
+            // v0.12: picking a saved station from the browse list switches the
+            // active station app-wide (onSelectStation → StationPrefs) AND
+            // resolves the live item for THAT url immediately, so the first play
+            // streams the chosen station without waiting for the prefs swap.
+            val stationUrl = stationUrlFor(item)
+            if (stationUrl != null) {
+                onSelectStation?.invoke(stationUrl)
+                liveMediaItem(StationApi(stationUrl))
+            } else {
+                liveMediaItem(api)
+            }
+        }.toMutableList()
+    }
+
+    /** Root children: the saved stations (v0.12) or, with none saved, the single live item. */
+    internal fun rootChildren(): List<MediaItem> {
+        val saved = stations()
+        return if (saved.isEmpty()) listOf(browseLiveItem()) else saved.map { stationItem(it) }
     }
 
     override fun onGetLibraryRoot(
@@ -269,8 +326,9 @@ class BrowseTree(var api: StationApi) : MediaLibrarySession.Callback {
         params: LibraryParams?,
     ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> =
         when (parentId) {
+            // v0.12: saved stations when present, else the single live item.
             ROOT_ID -> Futures.immediateFuture(
-                LibraryResult.ofItemList(ImmutableList.of(browseLiveItem()), params),
+                LibraryResult.ofItemList(ImmutableList.copyOf(rootChildren()), params),
             )
             // The live item is a leaf — an (unexpected) children request yields an empty list.
             LIVE_ITEM_ID -> Futures.immediateFuture(
@@ -284,9 +342,15 @@ class BrowseTree(var api: StationApi) : MediaLibrarySession.Callback {
         browser: MediaSession.ControllerInfo,
         mediaId: String,
     ): ListenableFuture<LibraryResult<MediaItem>> =
-        when (mediaId) {
-            LIVE_ITEM_ID -> Futures.immediateFuture(LibraryResult.ofItem(browseLiveItem(), null))
-            ROOT_ID -> Futures.immediateFuture(LibraryResult.ofItem(rootItem(), null))
+        when {
+            mediaId == LIVE_ITEM_ID -> Futures.immediateFuture(LibraryResult.ofItem(browseLiveItem(), null))
+            mediaId == ROOT_ID -> Futures.immediateFuture(LibraryResult.ofItem(rootItem(), null))
+            // v0.12: a saved-station leaf — rebuild it from its URL + saved name.
+            mediaId.startsWith(STATION_ITEM_PREFIX) -> {
+                val url = mediaId.removePrefix(STATION_ITEM_PREFIX)
+                val preset = stations().firstOrNull { it.url == url } ?: StationPreset(url, url)
+                Futures.immediateFuture(LibraryResult.ofItem(stationItem(preset), null))
+            }
             else -> Futures.immediateFuture(LibraryResult.ofError(LibraryResult.RESULT_ERROR_BAD_VALUE))
         }
 

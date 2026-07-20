@@ -2,7 +2,51 @@ package com.powerpoppalace.subwaveauto.prefs
 
 import android.content.Context
 import android.content.SharedPreferences
+import org.json.JSONArray
+import org.json.JSONObject
 import java.net.URI
+
+/**
+ * A saved station (v0.12 presets): a display [name] and its base [url]
+ * (already normalized). Pure data — JSON (de)serialization lives in the pure,
+ * JVM-tested [presetsToJson] / [presetsFromJson].
+ */
+data class StationPreset(val name: String, val url: String)
+
+/** Serialize presets to a compact JSON array string. Pure, JVM-tested. */
+internal fun presetsToJson(presets: List<StationPreset>): String {
+    val arr = JSONArray()
+    for (p in presets) {
+        arr.put(JSONObject().put("name", p.name).put("url", p.url))
+    }
+    return arr.toString()
+}
+
+/** Parse the presets JSON array; skips malformed / empty entries. Pure, JVM-tested. */
+internal fun presetsFromJson(json: String?): List<StationPreset> {
+    if (json.isNullOrBlank()) return emptyList()
+    return try {
+        val arr = JSONArray(json)
+        buildList {
+            for (i in 0 until arr.length()) {
+                val o = arr.optJSONObject(i) ?: continue
+                val url = o.optString("url").trim()
+                if (url.isEmpty()) continue
+                val name = o.optString("name").trim().ifEmpty { url }
+                add(StationPreset(name, url))
+            }
+        }
+    } catch (_: Exception) {
+        emptyList()
+    }
+}
+
+/**
+ * Insert-or-update [presets] with a station: dedupes by URL (a re-add updates
+ * the name, never duplicates), newest last. Pure, JVM-tested.
+ */
+internal fun upsertPreset(presets: List<StationPreset>, preset: StationPreset): List<StationPreset> =
+    presets.filterNot { it.url == preset.url } + preset
 
 /**
  * Station base-URL preference (SharedPreferences file `station`, key `baseUrl`).
@@ -24,6 +68,9 @@ object StationPrefs {
 
     /** v0.8 listener name attached to song requests ("name" in POST /api/request). */
     internal const val KEY_LISTENER_NAME = "listenerName"
+
+    /** v0.12 saved station presets — JSON array of {name, url}. */
+    internal const val KEY_PRESETS = "stationPresets"
 
     /** Server-side cap on the request name (upstream REQUEST_NAME_MAX). */
     const val LISTENER_NAME_MAX = 40
@@ -63,6 +110,28 @@ object StationPrefs {
     /** Persist an artwork mode (the caller passes a known ArtMode.prefValue). */
     fun setArtMode(ctx: Context, value: String) {
         prefs(ctx).edit().putString(KEY_ART_MODE, value).apply()
+    }
+
+    /** Saved station presets (v0.12), in saved order. Empty when none. */
+    fun presets(ctx: Context): List<StationPreset> =
+        presetsFromJson(prefs(ctx).getString(KEY_PRESETS, null))
+
+    /**
+     * Save [name] for a station [url], making it a preset. The URL is normalized
+     * (same rules as [setBaseUrl]); an invalid URL is ignored. A blank name falls
+     * back to the URL. Re-adding an existing URL updates its name (no duplicate).
+     */
+    fun addPreset(ctx: Context, name: String, url: String) {
+        val normalized = normalizeBaseUrl(url) ?: return
+        val label = name.trim().ifEmpty { normalized }
+        val next = upsertPreset(presets(ctx), StationPreset(label, normalized))
+        prefs(ctx).edit().putString(KEY_PRESETS, presetsToJson(next)).apply()
+    }
+
+    /** Remove the preset with this URL (no-op if absent). */
+    fun removePreset(ctx: Context, url: String) {
+        val next = presets(ctx).filterNot { it.url == url }
+        prefs(ctx).edit().putString(KEY_PRESETS, presetsToJson(next)).apply()
     }
 
     /** Listener name for song requests, or "" when unset (server shows "anon"). */

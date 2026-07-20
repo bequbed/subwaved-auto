@@ -216,6 +216,56 @@ class BrowseTreeTest {
         assertTrue(item.mediaMetadata.title.toString().contains("mr roboto"))
     }
 
+    // --- v0.12 station presets ---
+
+    @Test
+    fun rootChildren_noPresets_isSingleLiveItem() {
+        // Backward compatible: no saved stations → the one live item.
+        val children = tree.rootChildren()
+        assertEquals(1, children.size)
+        assertEquals(LIVE_ITEM_ID, children[0].mediaId)
+    }
+
+    @Test
+    fun rootChildren_withPresets_listsThem() {
+        tree.stations = {
+            listOf(
+                com.powerpoppalace.subwaveauto.prefs.StationPreset("One", "https://one.example.com"),
+                com.powerpoppalace.subwaveauto.prefs.StationPreset("Two", "https://two.example.com"),
+            )
+        }
+        val children = tree.rootChildren()
+        assertEquals(2, children.size)
+        assertEquals(STATION_ITEM_PREFIX + "https://one.example.com", children[0].mediaId)
+        assertEquals("One", children[0].mediaMetadata.title.toString())
+        assertEquals(true, children[1].mediaMetadata.isPlayable)
+    }
+
+    @Test
+    fun resolve_stationItem_switchesStationAndPlaysThatUrl() {
+        var picked: String? = null
+        tree.onSelectStation = { picked = it }
+        val item = MediaItem.Builder()
+            .setMediaId(STATION_ITEM_PREFIX + "https://two.example.com")
+            .build()
+
+        val resolved = tree.resolveMediaItems(listOf(item))
+
+        // The pick switched the active station...
+        assertEquals("https://two.example.com", picked)
+        // ...and the resolved item streams THAT station immediately.
+        assertEquals(LIVE_ITEM_ID, resolved[0].mediaId)
+        val uri = resolved[0].localConfiguration!!.uri.toString()
+        assertTrue("must stream the picked station: $uri", uri.startsWith("https://two.example.com/stream.mp3?t="))
+    }
+
+    @Test
+    fun stationUrlFor_extractsUrl_orNull() {
+        val stationItem = MediaItem.Builder().setMediaId(STATION_ITEM_PREFIX + "https://x.example.com").build()
+        assertEquals("https://x.example.com", tree.stationUrlFor(stationItem))
+        assertEquals(null, tree.stationUrlFor(MediaItem.Builder().setMediaId(LIVE_ITEM_ID).build()))
+    }
+
     // --- onAddMediaItems resolution (via its delegate resolveMediaItems) ---
 
     @Test
