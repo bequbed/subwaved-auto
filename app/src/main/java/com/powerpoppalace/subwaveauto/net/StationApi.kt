@@ -232,6 +232,38 @@ class StationApi(
         }
     }
 
+    /**
+     * The station's weekly schedule (v0.12.1 "On air / Up next"): show id →
+     * display name, a 7-day grid (Sun=0..Sat=6) of 24 hourly slots holding a
+     * show id or null (freeform/auto-DJ), and the IANA timezone the grid is
+     * painted in — hours are STATION-local, not device-local.
+     */
+    class ScheduleInfo(
+        val showNames: Map<String, String>,
+        val grid: Map<Int, List<String?>>,
+        val timezone: String?,
+    )
+
+    /** The next scheduled show: name + when (station-local hour, days ahead). */
+    class NextShow(val name: String, val dayOffset: Int, val hour: Int)
+
+    /** GET `{base}/api/schedule` — the weekly grid. Null on any failure. */
+    suspend fun schedule(): ScheduleInfo? = withContext(Dispatchers.IO) {
+        try {
+            val request = Request.Builder().url("$baseUrl/api/schedule").get().build()
+            client.newCall(request).execute().use { resp ->
+                if (!resp.isSuccessful) return@withContext null
+                val body = resp.body?.string()
+                if (body.isNullOrBlank()) return@withContext null
+                parseSchedule(body)
+            }
+        } catch (ce: CancellationException) {
+            throw ce
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     /** GET `{base}/api/request/{id}` — the request's current status. Null on any failure. */
     suspend fun pollRequest(id: String): RequestResult? = withContext(Dispatchers.IO) {
         try {
@@ -278,6 +310,59 @@ class StationApi(
             )
         } catch (_: Exception) {
             null
+        }
+
+        /**
+         * Parse the `/api/schedule` payload: `shows` [{id, name}, …] → the name
+         * map, `schedule` {"0".."6": [24 × showId|null]} → the grid, plus the
+         * station `timezone`. Malformed days/entries are skipped, never fatal.
+         * Pure, JVM-tested.
+         */
+        internal fun parseSchedule(body: String): ScheduleInfo? = try {
+            val o = JSONObject(body)
+            val names = mutableMapOf<String, String>()
+            o.optJSONArray("shows")?.let { arr ->
+                for (i in 0 until arr.length()) {
+                    val s = arr.optJSONObject(i) ?: continue
+                    val id = str(s, "id") ?: continue
+                    val name = str(s, "name") ?: continue
+                    names[id] = name
+                }
+            }
+            val grid = mutableMapOf<Int, List<String?>>()
+            o.optJSONObject("schedule")?.let { sch ->
+                for (d in 0..6) {
+                    val day = sch.optJSONArray(d.toString()) ?: continue
+                    grid[d] = (0 until day.length()).map { h ->
+                        if (day.isNull(h)) null else day.optString(h).takeIf { it.isNotBlank() }
+                    }
+                }
+            }
+            ScheduleInfo(names, grid, str(o, "timezone"))
+        } catch (_: Exception) {
+            null
+        }
+
+        /**
+         * The next scheduled show change after (dayOfWeek Sun=0..6, hour 0..23),
+         * station-local: the first later slot holding a NAMED show different
+         * from the one airing now. Same-show runs are skipped (a 3-hour block
+         * is one show, not three "next"s); null slots (freeform) are skipped
+         * too. Scans one full week; null when the grid is empty. Pure, JVM-tested.
+         */
+        internal fun upNext(info: ScheduleInfo, dayOfWeek: Int, hour: Int): NextShow? {
+            val currentId = info.grid[dayOfWeek]?.getOrNull(hour)
+            val startSlot = dayOfWeek * 24 + hour
+            for (step in 1..7 * 24) {
+                val total = startSlot + step
+                val d = (total / 24) % 7
+                val h = total % 24
+                val id = info.grid[d]?.getOrNull(h) ?: continue
+                if (id == currentId) continue
+                val name = info.showNames[id] ?: continue
+                return NextShow(name, dayOffset = (total / 24) - dayOfWeek, hour = h)
+            }
+            return null
         }
 
         internal fun parseRequestResult(body: String): RequestResult? = try {
@@ -344,6 +429,10 @@ class StationApi(
                     } else {
                         null
                     },
+                    // v0.12.1 "On air": top-level activeShow (the route's own
+                    // reshaped block), falling back to context.activeShow.
+                    showName = o.optJSONObject("activeShow")?.let { str(it, "name") }
+                        ?: o.optJSONObject("context")?.optJSONObject("activeShow")?.let { str(it, "name") },
                 )
             } catch (_: Exception) {
                 null

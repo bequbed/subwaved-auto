@@ -43,6 +43,14 @@ Development builds (every push to a working branch) also land in
 [`dist/`](dist/) on that branch; those may be debug-signed — prefer the
 Releases page.
 
+## On air / Up next (v0.12.1)
+
+While playing, the phone shows the current show ("On air: …", from the
+station's `activeShow` — overrides included) and the next scheduled show
+with its start time ("Next: Night Owls Tue 21:00"), computed from the
+weekly `/api/schedule` grid in the station's own timezone. Hidden on
+stations without a schedule.
+
 ## Multiple stations (v0.12)
 
 Save several SUB/WAVE stations and switch between them. On the phone, enter an

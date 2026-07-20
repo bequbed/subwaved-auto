@@ -19,4 +19,7 @@ data class NowPlaying(
     val djName: String? = null,
     /** Current listener count (top-level `listeners`), or null when absent. */
     val listeners: Int? = null,
+    /** Name of the show currently on air (`activeShow.name`), or null between
+     *  shows / freeform auto-DJ. Authoritative — includes takeover overrides. */
+    val showName: String? = null,
 )

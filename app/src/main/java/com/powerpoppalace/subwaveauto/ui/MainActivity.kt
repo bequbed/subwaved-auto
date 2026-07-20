@@ -368,14 +368,19 @@ private fun MainScreen(
 
             // v0.12: saved stations. Tap one to tune in; ✕ removes it. The URL
             // field below doubles as "add a station". Hidden until you save one.
+            val switchedMessageTemplate = stringResource(R.string.station_switched)
             StationPresets(
                 presets = presets,
                 activeUrl = urlInput.trim().trimEnd('/'),
-                onSelect = { url ->
+                onSelect = { url, name ->
                     urlInput = url
                     urlError = false
                     StationPrefs.setBaseUrl(context, url)
-                    scope.launch { snackbarHostState.showSnackbar(savedMessage) }
+                    // Distinct from the URL-field Save flow's message — tapping a
+                    // PRESET switches stations, it doesn't save anything new.
+                    scope.launch {
+                        snackbarHostState.showSnackbar(switchedMessageTemplate.format(name))
+                    }
                 },
                 onRemove = { url ->
                     StationPrefs.removePreset(context, url)
@@ -537,19 +542,35 @@ private fun MainScreen(
 private fun StationInfoLine(isPlaying: Boolean) {
     val context = LocalContext.current
     var line by remember { mutableStateOf<String?>(null) }
+    // v0.12.1: "On air: <show> · Next: <show> Tue 15:00" — activeShow from the
+    // same now-playing poll, "next" computed from the weekly /api/schedule grid
+    // in the STATION's timezone.
+    var showLine by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(isPlaying) {
         if (!isPlaying) {
             line = null
+            showLine = null
             return@LaunchedEffect
         }
+        // Schedule is fetched once per station URL (it changes rarely); the
+        // presets feature can switch stations mid-session, so track the URL.
+        var scheduleUrl: String? = null
+        var schedule: StationApi.ScheduleInfo? = null
         while (true) {
-            val np = StationApi(StationPrefs.baseUrl(context)).nowPlaying()
+            val base = StationPrefs.baseUrl(context)
+            val api = StationApi(base)
+            if (base != scheduleUrl) {
+                schedule = api.schedule()
+                scheduleUrl = base
+            }
+            val np = api.nowPlaying()
             line = np?.let {
                 listOfNotNull(
                     it.djName?.let { d -> "DJ $d" },
                     it.listeners?.let { n -> if (n == 1) "1 listening" else "$n listening" },
                 ).joinToString(" · ").takeIf { s -> s.isNotEmpty() }
             }
+            showLine = buildShowLine(np?.showName, schedule)
             delay(15_000)
         }
     }
@@ -562,6 +583,45 @@ private fun StationInfoLine(isPlaying: Boolean) {
             textAlign = TextAlign.Center,
         )
     }
+    showLine?.let {
+        Spacer(Modifier.height(2.dp))
+        Text(
+            text = it,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+        )
+    }
+}
+
+/**
+ * "On air: X · Next: Y Tue 15:00" (v0.12.1), or null when neither side is
+ * known. "Next" times are computed and shown in the STATION's timezone (the
+ * grid is painted there); same-day changes show just the hour, later days
+ * prefix the short weekday name.
+ */
+private fun buildShowLine(onAir: String?, schedule: StationApi.ScheduleInfo?): String? {
+    val next = schedule?.let { info ->
+        val zone = info.timezone
+            ?.let { tz -> runCatching { java.time.ZoneId.of(tz) }.getOrNull() }
+            ?: java.time.ZoneId.systemDefault()
+        val now = java.time.ZonedDateTime.now(zone)
+        val dow = now.dayOfWeek.value % 7 // java: Mon=1..Sun=7 → grid: Sun=0..Sat=6
+        StationApi.upNext(info, dow, now.hour)?.let { n ->
+            val time = "%02d:00".format(n.hour)
+            val prefix = if (n.dayOffset == 0) {
+                ""
+            } else {
+                now.plusDays(n.dayOffset.toLong()).dayOfWeek
+                    .getDisplayName(java.time.format.TextStyle.SHORT, java.util.Locale.getDefault()) + " "
+            }
+            "Next: ${n.name} $prefix$time"
+        }
+    }
+    return listOfNotNull(
+        onAir?.let { "On air: $it" },
+        next,
+    ).joinToString(" · ").takeIf { it.isNotEmpty() }
 }
 
 /**
@@ -573,7 +633,7 @@ private fun StationInfoLine(isPlaying: Boolean) {
 private fun StationPresets(
     presets: List<StationPreset>,
     activeUrl: String,
-    onSelect: (String) -> Unit,
+    onSelect: (String, String) -> Unit,
     onRemove: (String) -> Unit,
 ) {
     if (presets.isEmpty()) return
@@ -588,7 +648,7 @@ private fun StationPresets(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable { onSelect(preset.url) }
+                    .clickable { onSelect(preset.url, preset.name) }
                     .padding(vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {

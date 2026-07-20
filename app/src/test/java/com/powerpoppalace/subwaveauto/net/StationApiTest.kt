@@ -385,6 +385,104 @@ class StationApiTest {
         assertEquals(null, StationApi.parseRequestResult("not json"))
     }
 
+    // --- v0.12.1 schedule / On air / Up next ---
+
+    @Test
+    fun nowPlaying_activeShowName_parsed() = runBlocking {
+        server.enqueue(
+            MockResponse().setBody(
+                """
+                {
+                  "nowPlaying": {"title": "T"},
+                  "activeShow": {"name": "Late Night Basement", "persona": {"id": "p1", "name": "Frequency"}}
+                }
+                """.trimIndent()
+            )
+        )
+        assertEquals("Late Night Basement", api.nowPlaying()?.showName)
+    }
+
+    @Test
+    fun schedule_parsesShowsGridAndTimezone() = runBlocking {
+        server.enqueue(
+            MockResponse().setBody(
+                """
+                {
+                  "shows": [{"id": "s1", "name": "Morning Drive"}, {"id": "s2", "name": "Night Owls"}],
+                  "schedule": {"0": ["s1", null, "s2"], "1": [null, null, null]},
+                  "timezone": "Pacific/Auckland"
+                }
+                """.trimIndent()
+            )
+        )
+        val s = api.schedule()
+        requireNotNull(s)
+        assertEquals("Morning Drive", s.showNames["s1"])
+        assertEquals("s1", s.grid[0]?.get(0))
+        assertEquals(null, s.grid[0]?.get(1))
+        assertEquals("s2", s.grid[0]?.get(2))
+        assertEquals("Pacific/Auckland", s.timezone)
+        assertEquals("/api/schedule", server.takeRequest().path)
+    }
+
+    @Test
+    fun parseSchedule_garbage_returnsNull() {
+        assertEquals(null, StationApi.parseSchedule("nope"))
+    }
+
+    @Test
+    fun upNext_skipsSameShowRunAndNulls() {
+        // Sun 10:00-12:00 is one 3-hour block of s1; s2 starts at 14:00 with a
+        // freeform gap between — "next" must be s2 at 14, not the s1 slots.
+        val info = StationApi.ScheduleInfo(
+            showNames = mapOf("s1" to "Block Party", "s2" to "Drive Time"),
+            grid = mapOf(0 to List(24) { h -> when (h) { 10, 11, 12 -> "s1"; 14 -> "s2"; else -> null } }),
+            timezone = null,
+        )
+        val next = StationApi.upNext(info, dayOfWeek = 0, hour = 10)
+        requireNotNull(next)
+        assertEquals("Drive Time", next.name)
+        assertEquals(0, next.dayOffset)
+        assertEquals(14, next.hour)
+    }
+
+    @Test
+    fun upNext_wrapsToNextDay() {
+        val info = StationApi.ScheduleInfo(
+            showNames = mapOf("s1" to "Morning Drive"),
+            grid = mapOf(
+                6 to List(24) { null },
+                0 to List(24) { h -> if (h == 6) "s1" else null },
+            ),
+            timezone = null,
+        )
+        // Saturday 23:00 → next is Sunday 06:00, one day ahead.
+        val next = StationApi.upNext(info, dayOfWeek = 6, hour = 23)
+        requireNotNull(next)
+        assertEquals("Morning Drive", next.name)
+        assertEquals(1, next.dayOffset)
+        assertEquals(6, next.hour)
+    }
+
+    @Test
+    fun upNext_emptyGrid_isNull() {
+        val info = StationApi.ScheduleInfo(emptyMap(), emptyMap(), null)
+        assertEquals(null, StationApi.upNext(info, 0, 0))
+    }
+
+    @Test
+    fun upNext_unknownShowId_skipped() {
+        // A grid id with no matching shows entry must not surface a nameless "next".
+        val info = StationApi.ScheduleInfo(
+            showNames = mapOf("known" to "Known Show"),
+            grid = mapOf(0 to List(24) { h -> when (h) { 2 -> "ghost"; 4 -> "known"; else -> null } }),
+            timezone = null,
+        )
+        val next = StationApi.upNext(info, 0, 0)
+        assertEquals("Known Show", next?.name)
+        assertEquals(4, next?.hour)
+    }
+
     // --- v0.11 likes ---
 
     @Test
