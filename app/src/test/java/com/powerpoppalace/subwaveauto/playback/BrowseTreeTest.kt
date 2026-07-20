@@ -158,9 +158,7 @@ class BrowseTreeTest {
         val button = tree.requestButton(sent = false)
         assertEquals(ACTION_MORE_LIKE_THIS, button.sessionCommand?.customAction)
         assertEquals("More like this", button.displayName.toString())
-<<<<<<< Updated upstream
         assertEquals(CommandButton.ICON_SHUFFLE_STAR, button.icon)
-=======
         assertTrue(button.isEnabled)
     }
 
@@ -170,8 +168,8 @@ class BrowseTreeTest {
         // and not accept a second tap while it's up.
         val button = tree.requestButton(sent = true)
         assertEquals("Request sent", button.displayName.toString())
+        assertEquals(CommandButton.ICON_CHECK_CIRCLE_FILLED, button.icon)
         assertFalse(button.isEnabled)
->>>>>>> Stashed changes
     }
 
     @Test

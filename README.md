@@ -60,14 +60,10 @@ air** — no screen time needed while driving:
 - **Home-screen shortcut (v0.10):** long-press the launcher icon and pin
   "Request a song" — tapping it opens straight into the speech dialog.
   One tap → speak → auto-send.
-<<<<<<< Updated upstream
-- **In the car, one tap (v0.10):** a shuffle-with-sparkle "More like this" button on the AA
-  now-playing screen requests something similar to the current track.
-=======
-- **In the car, one tap (v0.10):** a ➕ "More like this" button on the AA
-  now-playing screen requests something similar to the current track; it
-  flips to a ✓ "Request sent" state for a few seconds as confirmation.
->>>>>>> Stashed changes
+- **In the car, one tap (v0.10):** a shuffle-with-sparkle "More like this"
+  button on the AA now-playing screen requests something similar to the
+  current track; it flips to a ✓ "Request sent" state for a few seconds
+  as confirmation (v0.10.1).
 - **Steering-wheel voice button:** Android reserves it for the system
   assistant — apps can't capture it directly. Where the assistant still
   routes media voice commands, "play *song* on Subwave Auto" works; newer

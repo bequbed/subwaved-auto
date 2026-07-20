@@ -112,17 +112,11 @@ class BrowseTree(var api: StationApi) : MediaLibrarySession.Callback {
      * state (check mark + "Request sent") the service flashes for a few seconds
      * as tap feedback before reverting.
      */
-<<<<<<< Updated upstream
-    internal fun moreLikeThisButton(): CommandButton =
-        CommandButton.Builder(CommandButton.ICON_SHUFFLE_STAR)
-            .setDisplayName("More like this")
-=======
     internal fun requestButton(sent: Boolean): CommandButton =
         CommandButton.Builder(
-            if (sent) CommandButton.ICON_CHECK_CIRCLE_FILLED else CommandButton.ICON_PLAYLIST_ADD,
+            if (sent) CommandButton.ICON_CHECK_CIRCLE_FILLED else CommandButton.ICON_SHUFFLE_STAR,
         )
             .setDisplayName(if (sent) "Request sent" else "More like this")
->>>>>>> Stashed changes
             .setSessionCommand(SessionCommand(ACTION_MORE_LIKE_THIS, Bundle.EMPTY))
             .setEnabled(!sent)
             .build()
