@@ -280,4 +280,48 @@ class LiveMetadataLogicTest {
         assertEquals("Power Pop Palace", displayArtist(null, "Power Pop Palace"))
         assertEquals(null, displayArtist(null, null))
     }
+
+    // --- composeCarSubtitle: the AA/BT second line (v0.12.4) ---
+
+    @Test
+    fun composeCarSubtitle_noContext_isClassicArtistStation() {
+        // No show/listeners/next → unchanged legacy behavior (keeps station branding).
+        assertEquals(
+            "Iron Maiden • Basement Transmission",
+            composeCarSubtitle("Iron Maiden", "Basement Transmission", null, null, null),
+        )
+        assertEquals(
+            "Iron Maiden",
+            composeCarSubtitle("Iron Maiden", null, null, null, null),
+        )
+        assertEquals(null, composeCarSubtitle(null, null, null, null, null))
+    }
+
+    @Test
+    fun composeCarSubtitle_fullContext_leadsWithArtistThenShowListenersNext() {
+        assertEquals(
+            "Iron Maiden • On air: First Light • 3 listening • Next: Deep Focus 10:00",
+            composeCarSubtitle(
+                artist = "Iron Maiden",
+                station = "Basement Transmission",
+                showName = "First Light",
+                listeners = 3,
+                nextLabel = "Deep Focus 10:00",
+            ),
+        )
+    }
+
+    @Test
+    fun composeCarSubtitle_partialContext_omitsMissingBitsAndDropsStation() {
+        // Only a listener count known → station branding drops, count rides along.
+        assertEquals(
+            "Iron Maiden • 1 listening",
+            composeCarSubtitle("Iron Maiden", "Basement Transmission", null, 1, null),
+        )
+        // No artist but a show → station heads the line.
+        assertEquals(
+            "Basement Transmission • On air: First Light",
+            composeCarSubtitle(null, "Basement Transmission", "First Light", null, null),
+        )
+    }
 }

@@ -40,6 +40,34 @@ internal fun isLikelyImageContentType(contentType: String?): Boolean {
  * @param client  injectable for tests only (short timeouts); production call sites
  *                use the shared default client (8 s call timeout).
  */
+/**
+ * "<show> HH:00" for the next scheduled change later today, or "<show> Ddd HH:00"
+ * for a change on a later day — the next show and its start time, in the
+ * STATION's own timezone (the grid is painted there). Null when there's no
+ * schedule or nothing upcoming. Shared by the phone's "Next: …" line and the
+ * Android Auto subtitle so both read identically. [clock] is injectable for
+ * tests; production uses the system clock. Pure apart from reading the clock.
+ */
+fun nextShowLabel(
+    schedule: StationApi.ScheduleInfo?,
+    clock: java.time.Clock = java.time.Clock.systemUTC(),
+): String? {
+    val info = schedule ?: return null
+    val zone = info.timezone?.let { tz -> runCatching { java.time.ZoneId.of(tz) }.getOrNull() }
+        ?: java.time.ZoneId.systemDefault()
+    val now = java.time.ZonedDateTime.now(clock.withZone(zone))
+    val dow = now.dayOfWeek.value % 7 // java: Mon=1..Sun=7 → grid: Sun=0..Sat=6
+    val next = StationApi.upNext(info, dow, now.hour) ?: return null
+    val time = "%02d:00".format(next.hour)
+    val prefix = if (next.dayOffset == 0) {
+        ""
+    } else {
+        now.plusDays(next.dayOffset.toLong()).dayOfWeek
+            .getDisplayName(java.time.format.TextStyle.SHORT, java.util.Locale.getDefault()) + " "
+    }
+    return "${next.name} $prefix$time"
+}
+
 class StationApi(
     private val baseUrl: String,
     private val client: OkHttpClient = defaultClient,

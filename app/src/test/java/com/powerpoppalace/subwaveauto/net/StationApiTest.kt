@@ -540,6 +540,51 @@ class StationApiTest {
     }
 
     @Test
+    fun nextShowLabel_sameDay_nameAndTimeOnly() {
+        // Tue 09:00 = First Light, 10:00 = Deep Focus, in Pacific/Auckland (UTC+12,
+        // no DST in July). Fixed instant = Tue 09:45 local → next is same-day 10:00.
+        val info = StationApi.ScheduleInfo(
+            showNames = mapOf("s1" to "First Light", "s2" to "Deep Focus"),
+            grid = mapOf(2 to List(24) { h -> when (h) { 9 -> "s1"; 10 -> "s2"; else -> null } }),
+            timezone = "Pacific/Auckland",
+        )
+        val clock = java.time.Clock.fixed(
+            java.time.Instant.parse("2026-07-20T21:45:00Z"), // Tue 09:45 NZST
+            java.time.ZoneOffset.UTC,
+        )
+        assertEquals("Deep Focus 10:00", nextShowLabel(info, clock))
+    }
+
+    @Test
+    fun nextShowLabel_laterDay_prefixesWeekday() {
+        // Sat 23:00 with the next show Sunday 06:00 → weekday-prefixed.
+        val info = StationApi.ScheduleInfo(
+            showNames = mapOf("s1" to "Sunrise Service"),
+            grid = mapOf(
+                6 to List(24) { null },
+                0 to List(24) { h -> if (h == 6) "s1" else null },
+            ),
+            timezone = "UTC",
+        )
+        val clock = java.time.Clock.fixed(
+            java.time.Instant.parse("2026-07-25T23:30:00Z"), // Saturday 23:30 UTC
+            java.time.ZoneOffset.UTC,
+        )
+        // "Sunrise Service Sun 06:00" — weekday short-name is locale-dependent, so
+        // assert the stable parts.
+        val label = nextShowLabel(info, clock)
+        assertTrue("expected a Sunday-prefixed 06:00 label, got: $label", label!!.startsWith("Sunrise Service "))
+        assertTrue("expected 06:00 in: $label", label.endsWith(" 06:00"))
+        assertTrue("expected a weekday prefix in: $label", label.contains("Sun"))
+    }
+
+    @Test
+    fun nextShowLabel_nullOrEmptySchedule_isNull() {
+        assertEquals(null, nextShowLabel(null))
+        assertEquals(null, nextShowLabel(StationApi.ScheduleInfo(emptyMap(), emptyMap(), "UTC")))
+    }
+
+    @Test
     fun upNext_unknownShowId_skipped() {
         // A grid id with no matching shows entry must not surface a nameless "next".
         val info = StationApi.ScheduleInfo(

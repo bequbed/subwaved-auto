@@ -132,27 +132,32 @@ class BrowseTree(var api: StationApi) : MediaLibrarySession.Callback {
             .build()
 
     /**
-     * v0.11: the one-tap "Like" (heart) button on the AA now-playing screen.
-     * A press likes whatever is on air (`POST /api/like`, no songId). [flashed]
-     * renders the transient post-press "Liked ✓" confirmation.
+     * v0.11 / v0.12.4: the one-tap "Like" (heart) button on the AA now-playing
+     * screen. A press likes whatever is on air (`POST /api/like`, no songId).
+     * [liked] renders the PERSISTENT state of the current track: a SOLID heart
+     * once liked (the song is favourited on the station/Navidrome), an outline
+     * until then. It stays solid for the rest of the track — the service resets it
+     * to the new song's like state on each track change — rather than flashing and
+     * reverting. Kept enabled in both states so it renders bright, not greyed; a
+     * re-tap on an already-liked track is a harmless no-op the server dedupes.
      */
-    internal fun likeButton(flashed: Boolean): CommandButton =
+    internal fun likeButton(liked: Boolean): CommandButton =
         CommandButton.Builder(
-            if (flashed) CommandButton.ICON_CHECK_CIRCLE_FILLED else CommandButton.ICON_HEART_UNFILLED,
+            if (liked) CommandButton.ICON_HEART_FILLED else CommandButton.ICON_HEART_UNFILLED,
         )
-            .setDisplayName(if (flashed) "Liked" else "Like this song")
+            .setDisplayName(if (liked) "Liked" else "Like this song")
             .setSessionCommand(SessionCommand(ACTION_LIKE, Bundle.EMPTY))
-            .setEnabled(!flashed)
+            .setEnabled(true)
             .build()
 
     /**
-     * The full AA custom-button row (v0.11): "More like this" + "Like". Either
-     * button's [requestSent] / [likeFlashed] renders its transient confirmation
-     * while the other stays neutral — PlaybackService rebuilds the whole row to
-     * flash one of them.
+     * The full AA custom-button row (v0.11): "More like this" + "Like".
+     * [requestSent] renders the "More like this" button's transient post-press
+     * confirmation; [liked] renders the "Like" heart's persistent solid/outline
+     * state. PlaybackService rebuilds the whole row to update either.
      */
-    internal fun customLayout(requestSent: Boolean, likeFlashed: Boolean): ImmutableList<CommandButton> =
-        ImmutableList.of(requestButton(requestSent), likeButton(likeFlashed))
+    internal fun customLayout(requestSent: Boolean, liked: Boolean): ImmutableList<CommandButton> =
+        ImmutableList.of(requestButton(requestSent), likeButton(liked))
 
     /** Pure seam for [onCustomCommand]: true when [action] was ours and fired. */
     internal fun handleCustomAction(action: String): Boolean = when (action) {
@@ -178,7 +183,7 @@ class BrowseTree(var api: StationApi) : MediaLibrarySession.Callback {
             .build()
         return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
             .setAvailableSessionCommands(commands)
-            .setCustomLayout(customLayout(requestSent = false, likeFlashed = false))
+            .setCustomLayout(customLayout(requestSent = false, liked = false))
             .build()
     }
 

@@ -76,6 +76,16 @@ class PlaybackService : MediaLibraryService() {
     /** v0.10.1: pending revert of the "Request sent ✓" button flash. */
     private var requestFeedbackJob: Job? = null
 
+    /** v0.10.1: whether the "More like this" button is showing its transient "sent ✓" flash. */
+    private var requestFlash = false
+
+    /**
+     * v0.12.4: whether the on-air track is liked by THIS listener — the PERSISTENT
+     * state behind the AA heart (solid when true). Set optimistically on a like tap
+     * and reconciled with the server; reset + re-read on each track change.
+     */
+    private var currentTrackLiked = false
+
     /** True once [onPlayerError] has spent its single auto-retry; reset when playback reaches READY. */
     private var retriedAfterError = false
 
@@ -117,14 +127,22 @@ class PlaybackService : MediaLibraryService() {
             serviceScope.launch {
                 stationApi.postRequest(text, StationPrefs.listenerName(this@PlaybackService))
             }
-            flashCustomButton(request = true, like = false)
+            flashRequestSent()
         }
-        // v0.11 like (heart) button: POST /api/like against the CURRENT station,
-        // no songId — the server likes whatever's on air. Fire-and-forget with a
-        // "Liked ✓" button flash.
+        // v0.11 / v0.12.4 like (heart) button: POST /api/like against the CURRENT
+        // station, no songId — the server likes whatever's on air. The heart goes
+        // SOLID immediately (optimistic) and STAYS solid for the track to show the
+        // song is favourited, then reconciles with the server's answer.
         browseTree.onLike = {
-            serviceScope.launch { stationApi.like(null) }
-            flashCustomButton(request = false, like = true)
+            currentTrackLiked = true
+            pushCustomLayout()
+            serviceScope.launch {
+                val res = stationApi.like(null)
+                if (res != null) {
+                    currentTrackLiked = res.liked
+                    pushCustomLayout()
+                }
+            }
         }
         session = MediaLibrarySession.Builder(this, player, browseTree).build()
 
@@ -139,6 +157,21 @@ class PlaybackService : MediaLibraryService() {
             artMode = { ArtMode.fromPref(StationPrefs.artMode(this)) },
             grantArtUri = ::grantArtReadAccess,
         )
+        // v0.12.4: on every track change, reset the AA heart to the new song and
+        // reflect whether THIS listener has already liked it (so a track they liked
+        // earlier shows solid when it comes round again). Best-effort; a like-state
+        // fetch failure just leaves the heart in its reset (outline) state.
+        liveMetadata.onTrackChanged = {
+            currentTrackLiked = false
+            pushCustomLayout()
+            serviceScope.launch {
+                val st = stationApi.likeState()
+                if (st != null && st.enabled && st.liked) {
+                    currentTrackLiked = true
+                    pushCustomLayout()
+                }
+            }
+        }
         liveMetadata.start()
         // ICY in-band metadata: ExoPlayer requests `Icy-MetaData: 1` on progressive
         // streams by default and surfaces IcyInfo at the PRESENTATION time of the
@@ -166,18 +199,31 @@ class PlaybackService : MediaLibraryService() {
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession = session
 
     /**
-     * v0.10.1 / v0.11: visible confirmation that a request or like went out —
-     * the pressed custom AA button flips to a disabled "…sent"/"Liked ✓" for a
-     * few seconds, then the whole row reverts to neutral. One shared job, so a
-     * rapid second press just restarts the flash. Main thread (media3 session
-     * contract — the hooks run in session callbacks, already on it).
+     * Rebuild the AA custom-button row from the current button state — the "More
+     * like this" flash ([requestFlash]) and the persistent "Like" heart
+     * ([currentTrackLiked]) — so updating one never clobbers the other. Main thread
+     * (media3 session contract — the hooks run in session callbacks, already on it).
      */
-    private fun flashCustomButton(request: Boolean, like: Boolean) {
+    private fun pushCustomLayout() {
+        session.setCustomLayout(
+            browseTree.customLayout(requestSent = requestFlash, liked = currentTrackLiked),
+        )
+    }
+
+    /**
+     * v0.10.1: visible confirmation that a request went out — the "More like this"
+     * button flips to a disabled "Request sent ✓" for a few seconds, then reverts.
+     * One shared job, so a rapid second press just restarts the flash. The heart's
+     * state is untouched (composed in via [pushCustomLayout]).
+     */
+    private fun flashRequestSent() {
         requestFeedbackJob?.cancel()
         requestFeedbackJob = serviceScope.launch {
-            session.setCustomLayout(browseTree.customLayout(requestSent = request, likeFlashed = like))
+            requestFlash = true
+            pushCustomLayout()
             delay(REQUEST_FEEDBACK_MS)
-            session.setCustomLayout(browseTree.customLayout(requestSent = false, likeFlashed = false))
+            requestFlash = false
+            pushCustomLayout()
         }
     }
 

@@ -74,6 +74,7 @@ import com.powerpoppalace.subwaveauto.net.StationApi
 import com.powerpoppalace.subwaveauto.net.UpdateCheck
 import com.powerpoppalace.subwaveauto.net.UpdateInfo
 import com.powerpoppalace.subwaveauto.net.isNewerVersion
+import com.powerpoppalace.subwaveauto.net.nextShowLabel
 import com.powerpoppalace.subwaveauto.prefs.StationPrefs
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -545,29 +546,11 @@ private fun StationInfoLine(isPlaying: Boolean) {
  * grid is painted there); same-day changes show just the hour, later days
  * prefix the short weekday name.
  */
-private fun buildShowLine(onAir: String?, schedule: StationApi.ScheduleInfo?): String? {
-    val next = schedule?.let { info ->
-        val zone = info.timezone
-            ?.let { tz -> runCatching { java.time.ZoneId.of(tz) }.getOrNull() }
-            ?: java.time.ZoneId.systemDefault()
-        val now = java.time.ZonedDateTime.now(zone)
-        val dow = now.dayOfWeek.value % 7 // java: Mon=1..Sun=7 → grid: Sun=0..Sat=6
-        StationApi.upNext(info, dow, now.hour)?.let { n ->
-            val time = "%02d:00".format(n.hour)
-            val prefix = if (n.dayOffset == 0) {
-                ""
-            } else {
-                now.plusDays(n.dayOffset.toLong()).dayOfWeek
-                    .getDisplayName(java.time.format.TextStyle.SHORT, java.util.Locale.getDefault()) + " "
-            }
-            "Next: ${n.name} $prefix$time"
-        }
-    }
-    return listOfNotNull(
+private fun buildShowLine(onAir: String?, schedule: StationApi.ScheduleInfo?): String? =
+    listOfNotNull(
         onAir?.let { "On air: $it" },
-        next,
+        nextShowLabel(schedule)?.let { "Next: $it" },
     ).joinToString(" · ").takeIf { it.isNotEmpty() }
-}
 
 /**
  * v0.11: "Like this song" — a heart with the live like-count, backed by the

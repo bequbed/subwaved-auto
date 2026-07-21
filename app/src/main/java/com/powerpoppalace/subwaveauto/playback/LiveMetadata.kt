@@ -10,6 +10,7 @@ import com.powerpoppalace.subwaveauto.art.ArtworkStore
 import com.powerpoppalace.subwaveauto.art.planArtFields
 import com.powerpoppalace.subwaveauto.net.NowPlaying
 import com.powerpoppalace.subwaveauto.net.StationApi
+import com.powerpoppalace.subwaveauto.net.nextShowLabel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -153,6 +154,36 @@ internal fun displayArtist(artist: String?, station: String?): String? = when {
 }
 
 /**
+ * The car / Bluetooth second line (v0.12.4). Android Auto's now-playing template
+ * reliably renders only two text lines — the song title and this one — so the
+ * on-air show, live listener count, and up-next show all have to share it.
+ *
+ * With NONE of that context known (a station with no schedule/listeners) it stays
+ * the classic "<artist> • <station>" from [displayArtist], unchanged. When any
+ * context IS present the line leads with the artist and appends what's known —
+ * "On air: <show>", "<n> listening", "Next: <show> HH:00" — and the station
+ * branding drops off (it still rides [MediaMetadata.station] for units that show
+ * it). Ordered so a narrow head unit truncates the long(est) "Next" first.
+ * Pure, JVM-tested.
+ */
+internal fun composeCarSubtitle(
+    artist: String?,
+    station: String?,
+    showName: String?,
+    listeners: Int?,
+    nextLabel: String?,
+): String? {
+    val context = buildList {
+        showName?.let { add("On air: $it") }
+        listeners?.let { add(if (it == 1) "1 listening" else "$it listening") }
+        nextLabel?.let { add("Next: $it") }
+    }
+    if (context.isEmpty()) return displayArtist(artist, station)
+    val head = artist ?: station
+    return (listOfNotNull(head) + context).joinToString(" • ")
+}
+
+/**
  * One cached cover, ready to publish either way: normalized inline bytes for
  * `artworkData`, plus the [ArtworkStore] content URI (as a String — JVM-test
  * friendly) for `artworkUri`. `contentUri` is null when the store write failed;
@@ -269,6 +300,22 @@ internal class LiveMetadata(
     private val grantArtUri: (Uri) -> Unit = {},
 ) {
 
+    /**
+     * v0.11/v0.12.4: fired on the main thread whenever a NEW track identity is
+     * committed (a real title/artist change, not an art-only refresh). The service
+     * uses it to refresh the AA "Like" heart for the new song. Assigned once at
+     * startup, like [api].
+     */
+    var onTrackChanged: (() -> Unit)? = null
+
+    /**
+     * v0.12.4: the station's weekly schedule (from `/api/state`), fetched lazily
+     * in the poll and cached so "Next: …" can ride the car subtitle. Null until
+     * fetched (or when the station has none); reset on stop so a restart — which
+     * is also how a base-URL change surfaces — refetches for the current station.
+     */
+    private var schedule: StationApi.ScheduleInfo? = null
+
     /** Active poll loop, non-null only while playing. */
     private var pollJob: Job? = null
 
@@ -354,6 +401,9 @@ internal class LiveMetadata(
         artFailures = 0
         icySeen = false
         lastIcyRaw = null
+        // Drop the cached schedule so a restart refetches it — this is also how a
+        // base-URL change (which stops playback) picks up the new station's grid.
+        schedule = null
     }
 
     /**
@@ -405,6 +455,11 @@ internal class LiveMetadata(
         } ?: return // station briefly down → keep last metadata, never crash the loop
 
         snapshots.put(np)
+        // v0.12.4: fetch the weekly grid once (cheap, changes rarely) so the car
+        // subtitle can carry "Next: …". /api/state returns a (possibly empty) grid
+        // on success → non-null, so this stops retrying; only a real error leaves
+        // it null to try again next tick.
+        if (schedule == null) schedule = api.schedule()
         if (!icySeen) {
             // No ICY on this connection → the poll drives everything (identity + art).
             pushMeta(np, artKnown = true)
@@ -467,10 +522,20 @@ internal class LiveMetadata(
             // carried forward untouched — this is what preserves art on an ICY miss.
             val meta = current.mediaMetadata.buildUpon() // keep MEDIA_TYPE_RADIO_STATION / isPlayable
             if (plan.setIdentity) {
+                // v0.12.4: the artist line — the one field every AA unit and BT
+                // display renders — now also carries the on-air show, live listener
+                // count, and up-next show (composeCarSubtitle), since the AA
+                // now-playing template gives no other reliable text slot. Falls back
+                // to the classic "<artist> • <station>" when none of that is known.
+                val subtitle = composeCarSubtitle(
+                    artist = np.artist,
+                    station = np.stationName,
+                    showName = np.showName,
+                    listeners = np.listeners,
+                    nextLabel = nextShowLabel(schedule),
+                ) ?: "Live broadcast"
                 meta.setTitle(np.title ?: np.stationName ?: "SUB/WAVE")
-                    // Station branding rides the artist line — the one field every AA
-                    // unit and BT display renders (see displayArtist).
-                    .setArtist(displayArtist(np.artist, np.stationName) ?: "Live broadcast")
+                    .setArtist(subtitle)
                     .setStation(np.stationName)
             }
             if (plan.setArt) {
@@ -510,7 +575,11 @@ internal class LiveMetadata(
             )
 
             // Commit state on Main (past the guard, so never for a superseded push).
-            if (plan.setIdentity) lastTuple = tuple
+            if (plan.setIdentity) {
+                lastTuple = tuple
+                // New song on air → let the service refresh the AA "Like" heart.
+                onTrackChanged?.invoke()
+            }
             if (plan.setArt) {
                 // Latch means "done with this URL — stop re-applying it every tick".
                 // Success, a cleared cover (null URL), a definitive can't-inline

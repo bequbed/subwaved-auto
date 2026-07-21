@@ -187,24 +187,33 @@ class BrowseTreeTest {
 
     @Test
     fun likeButton_states() {
-        val idle = tree.likeButton(flashed = false)
-        assertEquals(ACTION_LIKE, idle.sessionCommand?.customAction)
-        assertEquals("Like this song", idle.displayName.toString())
-        assertEquals(CommandButton.ICON_HEART_UNFILLED, idle.icon)
-        assertTrue(idle.isEnabled)
+        val notLiked = tree.likeButton(liked = false)
+        assertEquals(ACTION_LIKE, notLiked.sessionCommand?.customAction)
+        assertEquals("Like this song", notLiked.displayName.toString())
+        assertEquals(CommandButton.ICON_HEART_UNFILLED, notLiked.icon)
+        assertTrue(notLiked.isEnabled)
 
-        val flashed = tree.likeButton(flashed = true)
-        assertEquals("Liked", flashed.displayName.toString())
-        assertEquals(CommandButton.ICON_CHECK_CIRCLE_FILLED, flashed.icon)
-        assertFalse(flashed.isEnabled)
+        // v0.12.4: once liked the heart is a PERSISTENT solid heart (not a
+        // check-mark flash), and stays enabled so it renders bright, not greyed.
+        val liked = tree.likeButton(liked = true)
+        assertEquals("Liked", liked.displayName.toString())
+        assertEquals(CommandButton.ICON_HEART_FILLED, liked.icon)
+        assertTrue(liked.isEnabled)
     }
 
     @Test
     fun customLayout_hasBothButtonsInOrder() {
-        val layout = tree.customLayout(requestSent = false, likeFlashed = false)
+        val layout = tree.customLayout(requestSent = false, liked = false)
         assertEquals(2, layout.size)
         assertEquals(ACTION_MORE_LIKE_THIS, layout[0].sessionCommand?.customAction)
         assertEquals(ACTION_LIKE, layout[1].sessionCommand?.customAction)
+    }
+
+    @Test
+    fun customLayout_likedRow_showsSolidHeart() {
+        val layout = tree.customLayout(requestSent = false, liked = true)
+        assertEquals(CommandButton.ICON_HEART_FILLED, layout[1].icon)
+        assertEquals("Liked", layout[1].displayName.toString())
     }
 
     @Test
