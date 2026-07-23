@@ -10,7 +10,6 @@ import com.powerpoppalace.subwaveauto.art.ArtworkStore
 import com.powerpoppalace.subwaveauto.art.planArtFields
 import com.powerpoppalace.subwaveauto.net.NowPlaying
 import com.powerpoppalace.subwaveauto.net.StationApi
-import com.powerpoppalace.subwaveauto.net.nextShowLabel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -154,33 +153,29 @@ internal fun displayArtist(artist: String?, station: String?): String? = when {
 }
 
 /**
- * The car / Bluetooth second line (v0.12.4). Android Auto's now-playing template
+ * The car / Bluetooth second line (v0.12.5). Android Auto's now-playing template
  * reliably renders only two text lines — the song title and this one — so the
- * on-air show, live listener count, and up-next show all have to share it.
+ * on-air show shares the line below the title as "<album> • <band> • On air: <show>"
+ * (album first, then the artist/band, then the current show). Each part is omitted
+ * when unknown; with nothing known the line falls back to the station name (the
+ * semantic [MediaMetadata.station] field is still set separately).
  *
- * With NONE of that context known (a station with no schedule/listeners) it stays
- * the classic "<artist> • <station>" from [displayArtist], unchanged. When any
- * context IS present the line leads with the artist and appends what's known —
- * "On air: <show>", "<n> listening", "Next: <show> HH:00" — and the station
- * branding drops off (it still rides [MediaMetadata.station] for units that show
- * it). Ordered so a narrow head unit truncates the long(est) "Next" first.
- * Pure, JVM-tested.
+ * Deliberately does NOT carry the listener count or the next show — those stay on
+ * the phone now-playing screen. Pure, JVM-tested.
  */
 internal fun composeCarSubtitle(
+    album: String?,
     artist: String?,
     station: String?,
     showName: String?,
-    listeners: Int?,
-    nextLabel: String?,
 ): String? {
-    val context = buildList {
+    val parts = buildList {
+        album?.let { add(it) }
+        artist?.let { add(it) }
         showName?.let { add("On air: $it") }
-        listeners?.let { add(if (it == 1) "1 listening" else "$it listening") }
-        nextLabel?.let { add("Next: $it") }
     }
-    if (context.isEmpty()) return displayArtist(artist, station)
-    val head = artist ?: station
-    return (listOfNotNull(head) + context).joinToString(" • ")
+    if (parts.isEmpty()) return station
+    return parts.joinToString(" • ")
 }
 
 /**
@@ -308,14 +303,6 @@ internal class LiveMetadata(
      */
     var onTrackChanged: (() -> Unit)? = null
 
-    /**
-     * v0.12.4: the station's weekly schedule (from `/api/state`), fetched lazily
-     * in the poll and cached so "Next: …" can ride the car subtitle. Null until
-     * fetched (or when the station has none); reset on stop so a restart — which
-     * is also how a base-URL change surfaces — refetches for the current station.
-     */
-    private var schedule: StationApi.ScheduleInfo? = null
-
     /** Active poll loop, non-null only while playing. */
     private var pollJob: Job? = null
 
@@ -401,9 +388,6 @@ internal class LiveMetadata(
         artFailures = 0
         icySeen = false
         lastIcyRaw = null
-        // Drop the cached schedule so a restart refetches it — this is also how a
-        // base-URL change (which stops playback) picks up the new station's grid.
-        schedule = null
     }
 
     /**
@@ -455,11 +439,6 @@ internal class LiveMetadata(
         } ?: return // station briefly down → keep last metadata, never crash the loop
 
         snapshots.put(np)
-        // v0.12.4: fetch the weekly grid once (cheap, changes rarely) so the car
-        // subtitle can carry "Next: …". /api/state returns a (possibly empty) grid
-        // on success → non-null, so this stops retrying; only a real error leaves
-        // it null to try again next tick.
-        if (schedule == null) schedule = api.schedule()
         if (!icySeen) {
             // No ICY on this connection → the poll drives everything (identity + art).
             pushMeta(np, artKnown = true)
@@ -528,11 +507,10 @@ internal class LiveMetadata(
                 // now-playing template gives no other reliable text slot. Falls back
                 // to the classic "<artist> • <station>" when none of that is known.
                 val subtitle = composeCarSubtitle(
+                    album = np.album,
                     artist = np.artist,
                     station = np.stationName,
                     showName = np.showName,
-                    listeners = np.listeners,
-                    nextLabel = nextShowLabel(schedule),
                 ) ?: "Live broadcast"
                 meta.setTitle(np.title ?: np.stationName ?: "SUB/WAVE")
                     .setArtist(subtitle)
